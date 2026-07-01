@@ -74,6 +74,10 @@ function useAvatar(url: string) {
   return ref;
 }
 
+// Pre-load the cat sprite (black cat, not red)
+const catSpriteImg = typeof Image !== "undefined" ? new Image() : null;
+if (catSpriteImg) catSpriteImg.src = "/cat-sprite.png";
+
 export default function PvPCanvas({
   myHandle,
   myAvatarUrl,
@@ -132,7 +136,7 @@ export default function PvPCanvas({
       pos: { x: ARENA_WIDTH / 2, y: ARENA_HEIGHT / 2 },
       vel: { x: 0, y: 0 },
       radius: 22,
-      color: "#ff4d6d",
+      color: "#1a1a1a",
       aiState: { lastInference: 0, target: { ...mouse.pos }, strategy: "chase", confidence: 0.6 },
     };
     const holes: Entity[] = Array.from({ length: 3 }).map((_, i) => ({
@@ -578,28 +582,43 @@ export default function PvPCanvas({
   }
 
   function drawCat(ctx: CanvasRenderingContext2D, c: Entity, t: number) {
-    // Glow
+    // Soft amber glow (not red — the cat is menacing enough as a black cat)
     const grad = ctx.createRadialGradient(c.pos.x, c.pos.y, 1, c.pos.x, c.pos.y, c.radius * 3);
-    grad.addColorStop(0, "rgba(255,77,109,0.5)");
-    grad.addColorStop(1, "rgba(255,77,109,0)");
+    grad.addColorStop(0, "rgba(255,180,80,0.35)");
+    grad.addColorStop(1, "rgba(255,180,80,0)");
     ctx.fillStyle = grad;
     ctx.beginPath();
     ctx.arc(c.pos.x, c.pos.y, c.radius * 3, 0, Math.PI * 2);
     ctx.fill();
-    // Body
-    ctx.fillStyle = c.color;
-    ctx.beginPath();
-    ctx.arc(c.pos.x, c.pos.y, c.radius, 0, Math.PI * 2);
-    ctx.fill();
-    // Eye
+    // Cat sprite (black cat, faces right by default — flip if moving left)
+    const cSize = c.radius * 2.8;
+    ctx.save();
+    ctx.translate(c.pos.x, c.pos.y);
+    if (c.vel.x < 0) {
+      ctx.scale(-1, 1);
+    }
+    // Pulsing scale based on confidence
+    const pulse = 1 + 0.04 * Math.sin(t / 150);
+    ctx.scale(pulse, pulse);
+    if (catSpriteImg && catSpriteImg.complete && catSpriteImg.naturalWidth > 0) {
+      ctx.drawImage(catSpriteImg, -cSize / 2, -cSize / 2, cSize, cSize);
+    } else {
+      // Fallback: black circle
+      ctx.fillStyle = "#1a1a1a";
+      ctx.beginPath();
+      ctx.arc(0, 0, c.radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    // AI Eye marker above cat
     const eyeR = 4 + Math.sin(t / 200) * 1.2;
+    ctx.fillStyle = "#ff4d6d";
+    ctx.beginPath();
+    ctx.arc(c.pos.x - 8, c.pos.y - c.radius - 14, eyeR * 0.8, 0, Math.PI * 2);
+    ctx.fill();
     ctx.fillStyle = "#fff";
     ctx.beginPath();
-    ctx.arc(c.pos.x, c.pos.y - 2, eyeR, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = "#7a0010";
-    ctx.beginPath();
-    ctx.arc(c.pos.x, c.pos.y - 2, 2, 0, Math.PI * 2);
+    ctx.arc(c.pos.x - 8, c.pos.y - c.radius - 14, 1.5, 0, Math.PI * 2);
     ctx.fill();
   }
 

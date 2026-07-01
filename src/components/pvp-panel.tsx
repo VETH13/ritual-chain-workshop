@@ -9,6 +9,15 @@ import PvPCanvas from "@/components/game/pvp-canvas";
 import type { Dict } from "@/lib/i18n";
 import type { usePvPSocket } from "@/hooks/use-pvp-socket";
 
+// Format a handle for display (OKX wallets show shortened address)
+function displayHandle(handle: string): string {
+  if (handle.startsWith("okx:")) {
+    const addr = handle.slice(4);
+    return `OKX ${addr.slice(0, 6)}...${addr.slice(-4)}`;
+  }
+  return `@${handle}`;
+}
+
 type OnlinePlayer = {
   handle: string;
   avatarUrl: string;
@@ -79,7 +88,7 @@ export function PvPPanel({ t, myHandle, myAvatarUrl, pvp }: Props) {
             <div className="flex items-center gap-3">
               <img src={myAvatarUrl} alt={myHandle} className="h-12 w-12 rounded-full border-2 border-cyan-400" />
               <div>
-                <p className="font-mono text-sm font-bold text-cyan-300">@{myHandle} (You)</p>
+                <p className="font-mono text-sm font-bold text-cyan-300">{displayHandle(myHandle)} (You)</p>
                 <p className="text-xs text-cyan-200/60">Mouse</p>
               </div>
             </div>
@@ -88,7 +97,7 @@ export function PvPPanel({ t, myHandle, myAvatarUrl, pvp }: Props) {
             </div>
             <div className="flex items-center gap-3">
               <div className="text-right">
-                <p className="font-mono text-sm font-bold text-purple-300">@{pvp.matchStart.opponent.handle}</p>
+                <p className="font-mono text-sm font-bold text-purple-300">{displayHandle(pvp.matchStart.opponent.handle)}</p>
                 <p className="text-xs text-purple-200/60">Mouse</p>
               </div>
               <img src={pvp.matchStart.opponent.avatarUrl} alt={pvp.matchStart.opponent.handle} className="h-12 w-12 rounded-full border-2 border-purple-400" />
@@ -141,7 +150,7 @@ export function PvPPanel({ t, myHandle, myAvatarUrl, pvp }: Props) {
               )}
             </h2>
             <p className="text-sm text-slate-400 mt-1">
-              vs <span className="font-mono text-purple-300">@{oppHandle}</span>
+              vs <span className="font-mono text-purple-300">{displayHandle(oppHandle)}</span>
             </p>
           </div>
           <div className="flex justify-center gap-8 text-lg font-mono">
@@ -152,7 +161,7 @@ export function PvPPanel({ t, myHandle, myAvatarUrl, pvp }: Props) {
             <div className="text-slate-600 text-3xl">—</div>
             <div>
               <p className="text-purple-300 text-3xl font-bold">{matchResult.oppScore}</p>
-              <p className="text-xs text-slate-500">@{oppHandle}</p>
+              <p className="text-xs text-slate-500">{displayHandle(oppHandle)}</p>
             </div>
           </div>
           <Button
@@ -217,7 +226,7 @@ export function PvPPanel({ t, myHandle, myAvatarUrl, pvp }: Props) {
           <div className="flex items-center justify-center gap-4 py-4">
             <div className="text-center">
               <img src={myAvatarUrl} alt={myHandle} className="h-16 w-16 rounded-full border-2 border-cyan-400 mx-auto" />
-              <p className="font-mono text-xs text-cyan-300 mt-2">@{myHandle}</p>
+              <p className="font-mono text-xs text-cyan-300 mt-2">{displayHandle(myHandle)}</p>
             </div>
             <div className="text-4xl text-slate-600">VS</div>
             <div className="text-center">
@@ -270,7 +279,7 @@ export function PvPPanel({ t, myHandle, myAvatarUrl, pvp }: Props) {
                   <div className="flex items-center gap-3">
                     <img src={p.avatarUrl} alt={p.handle} className="h-10 w-10 rounded-full border border-cyan-500/30" />
                     <div>
-                      <p className="font-mono text-sm font-bold text-cyan-200">@{p.handle}</p>
+                      <p className="font-mono text-sm font-bold text-cyan-200">{displayHandle(p.handle)}</p>
                       <Badge variant="outline" className="text-[9px] border-emerald-400/30 text-emerald-300">
                         <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse mr-1" />
                         {p.status}
@@ -319,7 +328,7 @@ export function PvPPanel({ t, myHandle, myAvatarUrl, pvp }: Props) {
                       </div>
                     )}
                     <div>
-                      <p className="font-mono text-sm font-bold text-purple-200">@{f.handle}</p>
+                      <p className="font-mono text-sm font-bold text-purple-200">{displayHandle(f.handle)}</p>
                       <Badge variant="outline" className={`text-[9px] ${isOnline ? "border-emerald-400/30 text-emerald-300" : "border-slate-700 text-slate-500"}`}>
                         {isOnline ? "Online" : "Offline"}
                       </Badge>

@@ -7,6 +7,15 @@ import { Trophy, Loader2, ExternalLink, Link2 } from "lucide-react";
 import { INFERENCE_REGISTRY } from "@/lib/ritual";
 import type { Dict } from "@/lib/i18n";
 
+// Format a handle for display (OKX wallets show shortened address)
+function displayHandle(handle: string): string {
+  if (handle.startsWith("okx:")) {
+    const addr = handle.slice(4);
+    return `OKX ${addr.slice(0, 6)}...${addr.slice(-4)}`;
+  }
+  return `@${handle}`;
+}
+
 type OnchainEntry = {
   handle: string;
   avatar?: string | null;
@@ -135,7 +144,7 @@ export function LeaderboardPanel({ t }: Props) {
                     )}
                     <div>
                       <p className="font-mono text-sm font-bold text-amber-200">
-                        @{e.handle}
+                        {displayHandle(e.handle)}
                       </p>
                       <p className="text-[10px] text-slate-500 font-mono">
                         {e.wallet.slice(0, 8)}...{e.wallet.slice(-6)}

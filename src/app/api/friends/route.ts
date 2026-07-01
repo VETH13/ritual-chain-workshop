@@ -59,11 +59,18 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Your profile not found — login first" }, { status: 404 });
     }
 
-    // If toPlayer doesn't exist, auto-create them with avatar from unavatar.io
-    // This lets you add friends who haven't logged in yet.
+    // If toPlayer doesn't exist, auto-create them with avatar
+    // - For X handles: use unavatar.io
+    // - For OKX wallets: use dicebear generated avatar
     let toPlayer = await db.player.findUnique({ where: { xHandle: to } });
     if (!toPlayer) {
-      const avatarUrl = `https://unavatar.io/twitter/${to}`;
+      let avatarUrl: string;
+      if (to.startsWith("okx:")) {
+        const addr = to.slice(4);
+        avatarUrl = `https://api.dicebear.com/7.x/shapes/svg?seed=${addr}&backgroundColor=10b981,14b8a6,0ea5e9,6366f1,8b5cf6&backgroundType=gradientLinear`;
+      } else {
+        avatarUrl = `https://unavatar.io/twitter/${to}`;
+      }
       toPlayer = await db.player.create({
         data: { xHandle: to, xAvatarUrl: avatarUrl },
       });

@@ -67,13 +67,30 @@ export function verifySession(session: Session): boolean {
   return sign(payload) === session.signature;
 }
 
-// Fetch X profile via unavatar.io (free, no API key needed)
+// Fetch profile (X handle or OKX wallet)
+// For OKX wallets, handle is prefixed with "okx:" and the avatar is generated
+// from the wallet address via dicebear API.
 export async function fetchXProfile(handle: string): Promise<XProfile> {
-  const clean = handle.replace(/^@/, "").trim().toLowerCase();
+  const raw = handle.trim();
+  // OKX wallet login — handle is "okx:0x..."
+  if (raw.toLowerCase().startsWith("okx:")) {
+    const addr = raw.slice(4).trim().toLowerCase();
+    if (!/^0x[a-f0-9]{40}$/.test(addr)) {
+      throw new Error("Invalid OKX wallet address");
+    }
+    // Generate a unique avatar from the wallet address using dicebear
+    const avatarUrl = `https://api.dicebear.com/7.x/shapes/svg?seed=${addr}&backgroundColor=10b981,14b8a6,0ea5e9,6366f1,8b5cf6&backgroundType=gradientLinear`;
+    return {
+      handle: `okx:${addr}`,
+      avatarUrl,
+      name: `OKX ${addr.slice(0, 6)}...${addr.slice(-4)}`,
+    };
+  }
+  // X (Twitter) handle login
+  const clean = raw.replace(/^@/, "").trim().toLowerCase();
   if (!clean) throw new Error("Invalid handle");
   // unavatar.io returns the user's avatar image directly
   const avatarUrl = `https://unavatar.io/twitter/${clean}`;
-  // Verify the avatar exists (unavatar returns 200 with image, or a default)
   return {
     handle: clean,
     avatarUrl,

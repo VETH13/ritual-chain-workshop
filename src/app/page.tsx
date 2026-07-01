@@ -405,8 +405,10 @@ export default function Home() {
                   alt={session.handle}
                   className="h-5 w-5 rounded-full"
                 />
-                <span className="font-mono text-xs font-bold text-sky-300">
-                  @{session.handle}
+                <span className="font-mono text-xs font-bold text-sky-300 max-w-[120px] truncate">
+                  {session.handle.startsWith("okx:")
+                    ? `OKX ${session.handle.slice(4, 10)}...${session.handle.slice(-4)}`
+                    : `@${session.handle}`}
                 </span>
                 <button
                   onClick={logout}

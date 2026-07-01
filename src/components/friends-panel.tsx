@@ -18,6 +18,15 @@ import { toast } from "sonner";
 import type { Dict } from "@/lib/i18n";
 import type { ChallengePayload } from "@/hooks/use-pvp-socket";
 
+// Format a handle for display (OKX wallets show shortened address)
+function displayHandle(handle: string): string {
+  if (handle.startsWith("okx:")) {
+    const addr = handle.slice(4);
+    return `OKX ${addr.slice(0, 6)}...${addr.slice(-4)}`;
+  }
+  return `@${handle}`;
+}
+
 type Friend = {
   handle: string;
   status: string; // pending | accepted | blocked
@@ -67,8 +76,12 @@ export function FriendsPanel({
   }, [refresh]);
 
   const addFriend = async () => {
-    const clean = addHandle.replace(/^@/, "").trim().toLowerCase();
+    let clean = addHandle.replace(/^@/, "").trim().toLowerCase();
     if (!clean) return;
+    // If it looks like a wallet address (0x + 40 hex), prefix with "okx:"
+    if (/^0x[a-f0-9]{40}$/.test(clean)) {
+      clean = `okx:${clean}`;
+    }
     setAdding(true);
     try {
       const r = await fetch("/api/friends", {
@@ -124,7 +137,7 @@ export function FriendsPanel({
               )}
               <div>
                 <p className="font-bold text-amber-300">
-                  ⚔️ Challenge from @{incomingChallenge.from}
+                  ⚔️ Challenge from {displayHandle(incomingChallenge.from)}
                 </p>
                 <p className="text-xs text-amber-200/70">Accept to start a PvP match</p>
               </div>
@@ -158,22 +171,28 @@ export function FriendsPanel({
             {t.addFriend}
           </CardTitle>
         </CardHeader>
-        <CardContent className="flex gap-2">
-          <Input
-            value={addHandle}
-            onChange={(e) => setAddHandle(e.target.value)}
-            placeholder={t.friendHandle}
-            className="border-slate-700 bg-slate-900/60 font-mono"
-            onKeyDown={(e) => e.key === "Enter" && addFriend()}
-          />
-          <Button
-            onClick={addFriend}
-            disabled={adding}
-            className="gap-2 bg-gradient-to-r from-sky-500 to-blue-600"
-          >
-            {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
-            {t.addFriend}
-          </Button>
+        <CardContent className="space-y-2">
+          <div className="flex gap-2">
+            <Input
+              value={addHandle}
+              onChange={(e) => setAddHandle(e.target.value)}
+              placeholder="X handle (e.g. elonmusk) or OKX address (0x...)"
+              className="border-slate-700 bg-slate-900/60 font-mono"
+              onKeyDown={(e) => e.key === "Enter" && addFriend()}
+            />
+            <Button
+              onClick={addFriend}
+              disabled={adding}
+              className="gap-2 bg-gradient-to-r from-sky-500 to-blue-600"
+            >
+              {adding ? <Loader2 className="h-4 w-4 animate-spin" /> : <UserPlus className="h-4 w-4" />}
+              {t.addFriend}
+            </Button>
+          </div>
+          <p className="text-[11px] text-slate-500">
+            Add by X handle or OKX wallet address. They&apos;ll receive a request
+            when they login.
+          </p>
         </CardContent>
       </Card>
 
@@ -212,7 +231,7 @@ export function FriendsPanel({
                       </div>
                     )}
                     <div>
-                      <p className="font-mono text-sm font-bold text-purple-200">@{f.handle}</p>
+                      <p className="font-mono text-sm font-bold text-purple-200">{displayHandle(f.handle)}</p>
                       <p className="text-[10px] text-slate-500">friend</p>
                     </div>
                   </div>
@@ -261,7 +280,7 @@ export function FriendsPanel({
                     <img src={f.avatar} alt={f.handle} className="h-8 w-8 rounded-full" />
                   )}
                   <div>
-                    <p className="font-mono text-sm text-amber-200">@{f.handle}</p>
+                    <p className="font-mono text-sm text-amber-200">{displayHandle(f.handle)}</p>
                     <Badge variant="outline" className="text-[9px]">
                       {f.direction === "in" ? "incoming" : "sent"}
                     </Badge>
