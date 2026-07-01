@@ -1,0 +1,37 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// On-chain (simulated) game records anchored to Ritual testnet
+model GameRecord {
+  id            String   @id @default(cuid())
+  playerAddress String
+  difficulty    String   // kitten | hunter | strategist
+  wagerAmount   Int      // in CHEESE wei
+  survivedMs    Int
+  cheeseCollected Int
+  caught        Boolean
+  payoutAmount  Int
+  inferenceHash String   // hash of AI inference proof
+  ritualTxHash  String?  // mock tx hash on Ritual testnet
+  createdAt     DateTime @default(now())
+}
+
+// Leaderboard aggregate
+model Leaderboard {
+  id            String   @id
+  playerAddress String
+  totalGames    Int      @default(0)
+  wins          Int      @default(0)
+  totalCheese   Int      @default(0)
+  bestSurviveMs Int      @default(0)
+  updatedAt     DateTime @updatedAt
+}
