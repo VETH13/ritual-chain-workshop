@@ -24,8 +24,10 @@ def extract_cat_strict():
 
     # The black cat: brightness < 80 (very dark)
     # Plus pink paw pads / tongue: high R, mid G/B
+    # NOTE: pink detection was removed — it picked up floral background patches.
+    # Cat is still recognizable without the pink pads.
     is_dark = brightness < 80
-    is_pink = (r > 180) & (g > 100) & (g < 200) & (b < 200) & (b > 80)
+    is_pink = np.zeros_like(brightness, dtype=bool)
     mask = (is_dark | is_pink).astype(np.uint8) * 255
 
     # Morphological close: dilate then erode to fill small holes inside cat

@@ -95,7 +95,7 @@ const STARTING_CHEESE = 1000;
 
 export default function Home() {
   const { wallet, connect, connecting, error, ensureRitual } = useWallet();
-  const { lang, toggle, t, tf } = useLang();
+  const { lang, change, t, tf, pickerOpen, setPickerOpen, langs } = useLang();
   const [screen, setScreen] = useState<Screen>("start");
   const [difficulty, setDifficulty] = useState<Difficulty>("hunter");
   const [wagerAmount, setWagerAmount] = useState<number>(50);
@@ -114,6 +114,7 @@ export default function Home() {
   const [txHash, setTxHash] = useState<string | null>(null);
   const [payout, setPayout] = useState<number>(0);
   const [submitting, setSubmitting] = useState(false);
+  const [onchainVerified, setOnchainVerified] = useState<boolean>(false);
   const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [history, setHistory] = useState<GameHistoryItem[]>([]);
   const [claimed, setClaimed] = useState(false);
@@ -214,6 +215,7 @@ export default function Home() {
     setResult(null);
     setTxHash(null);
     setPayout(0);
+    setOnchainVerified(false);
     setLive({
       elapsed: 0,
       score: 0,
@@ -233,6 +235,30 @@ export default function Home() {
       setScreen("ended");
       setSubmitting(true);
       try {
+        // Attempt to anchor the result on Ritual testnet via wallet.
+        // This will prompt the user to sign a transaction. If they decline
+        // or the contract isn't deployed, we fall back to mock mode.
+        let submittedTxHash: string | null = null;
+        try {
+          const submitResp = await fetch("/api/onchain-submit", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              inferenceHash: r.inferenceHash || "0x",
+              difficulty,
+              survived: !r.caught,
+              cheeseCollected: r.cheeseCollected,
+              playerAddress: wallet.address,
+            }),
+          });
+          const submitJson = await submitResp.json();
+          if (submitJson.txHash) {
+            submittedTxHash = submitJson.txHash;
+          }
+        } catch {
+          // Onchain submit failed — fall through to mock
+        }
+
         const resp = await fetch("/api/game-record", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -244,12 +270,14 @@ export default function Home() {
             cheeseCollected: r.cheeseCollected,
             caught: r.caught,
             inferenceHash: r.inferenceHash,
+            txHash: submittedTxHash,
           }),
         });
         const j = await resp.json();
         if (j.ok) {
           setTxHash(j.ritualTxHash);
           setPayout(j.payoutAmount);
+          setOnchainVerified(j.onchainVerified ?? false);
           if (j.won) {
             setStreak((s) => {
               const ns = s + 1;
@@ -262,6 +290,9 @@ export default function Home() {
             setStreak(0);
             setBalance((b) => b - wagerAmount);
             toast.error(tf("caughtYou", { n: wagerAmount }));
+          }
+          if (j.onchainVerified) {
+            toast.success("🔗 Anchored on Ritual testnet!");
           }
           if (wallet.address) refreshHistory(wallet.address);
           refreshLeaderboard();
@@ -326,17 +357,66 @@ export default function Home() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {/* Language toggle */}
-            <button
-              onClick={toggle}
-              className="group flex items-center gap-1 rounded-md border border-slate-700 bg-slate-900/60 px-2.5 py-1.5 text-xs font-mono text-slate-300 hover:border-rose-500/40 hover:text-rose-300 transition-colors"
-              title={lang === "en" ? "切换到中文" : "Switch to English"}
-            >
-              <Languages className="h-3.5 w-3.5" />
-              <span className={lang === "en" ? "font-bold text-rose-300" : "text-slate-500"}>EN</span>
-              <span className="text-slate-600">/</span>
-              <span className={lang === "zh" ? "font-bold text-rose-300" : "text-slate-500"}>中</span>
-            </button>
+            {/* Language picker dropdown */}
+            <div className="relative">
+              <button
+                onClick={() => setPickerOpen(!pickerOpen)}
+                className="group flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-900/60 px-2.5 py-1.5 text-xs font-mono text-slate-300 hover:border-rose-500/40 hover:text-rose-300 transition-colors"
+                title="Language"
+                aria-label="Select language"
+                aria-expanded={pickerOpen}
+              >
+                <Languages className="h-3.5 w-3.5" />
+                <span className="font-bold text-rose-300">
+                  {langs.find((l) => l.code === lang)?.label ?? "EN"}
+                </span>
+                <svg
+                  className={`h-3 w-3 transition-transform ${pickerOpen ? "rotate-180" : ""}`}
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <path d="M6 9l6 6 6-6" />
+                </svg>
+              </button>
+              {pickerOpen && (
+                <>
+                  {/* Click-away overlay */}
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setPickerOpen(false)}
+                  />
+                  <div className="absolute right-0 top-full z-50 mt-1 w-36 overflow-hidden rounded-md border border-slate-700 bg-slate-900 shadow-xl">
+                    {langs.map((l) => (
+                      <button
+                        key={l.code}
+                        onClick={() => change(l.code)}
+                        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-slate-800 transition-colors ${
+                          lang === l.code
+                            ? "bg-rose-500/10 text-rose-300"
+                            : "text-slate-300"
+                        }`}
+                      >
+                        <span className="text-base">{l.flag}</span>
+                        <span className="font-mono font-bold">{l.label}</span>
+                        {lang === l.code && (
+                          <svg
+                            className="ml-auto h-3 w-3"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="3"
+                          >
+                            <path d="M5 13l4 4L19 7" />
+                          </svg>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
             <Badge
               variant="outline"
               className="border-rose-500/30 bg-rose-500/10 text-rose-300"
@@ -429,6 +509,7 @@ export default function Home() {
             txHash={txHash}
             payout={payout}
             submitting={submitting}
+            onchainVerified={onchainVerified}
             onPlayAgain={() => {
               setScreen("start");
             }}
@@ -1014,6 +1095,7 @@ function EndedScreen({
   txHash,
   payout,
   submitting,
+  onchainVerified,
   onPlayAgain,
   t,
   tf,
@@ -1024,6 +1106,7 @@ function EndedScreen({
   txHash: string | null;
   payout: number;
   submitting: boolean;
+  onchainVerified: boolean;
   onPlayAgain: () => void;
   t: Dict;
   tf: TfFn;
@@ -1115,10 +1198,22 @@ function EndedScreen({
             <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-300">
               {submitting ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
-              ) : (
+              ) : onchainVerified ? (
                 <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+              ) : (
+                <AlertCircle className="h-3.5 w-3.5 text-amber-400" />
               )}
               {t.ritualAnchor}
+              {onchainVerified ? (
+                <Badge className="ml-2 gap-1 border-emerald-400/40 bg-emerald-500/15 text-[9px] text-emerald-300">
+                  <CheckCircle2 className="h-2.5 w-2.5" />
+                  Verified
+                </Badge>
+              ) : (
+                <Badge className="ml-2 gap-1 border-amber-400/40 bg-amber-500/15 text-[9px] text-amber-300">
+                  Mock
+                </Badge>
+              )}
             </p>
             <div className="mt-2 space-y-1 font-mono text-[10px] text-slate-400">
               <p>

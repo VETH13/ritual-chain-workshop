@@ -144,6 +144,7 @@ export default function GameCanvas({
       inferenceCount: 0,
       speedBoostUntil: 0,
       inHoleUntil: 0,
+      mouseHistory: [],
       difficulty,
     };
     endedRef.current = false;
@@ -226,6 +227,7 @@ export default function GameCanvas({
         arenaWidth: s.width,
         arenaHeight: s.height,
         elapsed: s.elapsed,
+        mouseHistory: s.mouseHistory.slice(-cfg.memoryTicks || -8),
       };
       const resp = await fetch("/api/inference", {
         method: "POST",
@@ -315,6 +317,12 @@ export default function GameCanvas({
         }
         m.pos.x = clamp(m.pos.x + m.vel.x * (dt / 16), m.radius, s.width - m.radius);
         m.pos.y = clamp(m.pos.y + m.vel.y * (dt / 16), m.radius, s.height - m.radius);
+
+        // ---- Track mouse history every ~5 frames for memory-aware AI ----
+        if (Math.floor(s.elapsed / 80) !== Math.floor((s.elapsed - dt) / 80)) {
+          s.mouseHistory.push({ x: m.pos.x, y: m.pos.y });
+          if (s.mouseHistory.length > 16) s.mouseHistory.shift();
+        }
 
         // ---- Cat movement (towards aiState.target) ----
         const c = s.cat;

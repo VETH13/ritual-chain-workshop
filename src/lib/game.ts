@@ -47,6 +47,8 @@ export type GameState = {
   inferenceCount: number;
   speedBoostUntil: number;
   inHoleUntil: number;
+  // Mouse position history for memory-aware AI (most recent at end)
+  mouseHistory: Vec2[];
   difficulty: Difficulty;
 };
 
@@ -70,6 +72,13 @@ export const DIFFICULTY_CONFIG: Record<
     payoutMultiplier: number;
     description: string;
     emoji: string;
+    // New tuning knobs for smarter AI
+    thinkingDepth: number;       // how many steps ahead the AI reasons (1-5)
+    memoryTicks: number;         // how many past mouse positions the AI remembers
+    usesTraps: boolean;          // whether AI sets ambushes near cheese/holes
+    usesBoundedPursuit: boolean; // whether AI gives up chasing into holes
+    aggression: number;          // 0..1, how directly it pursues vs flanks
+    lookaheadSec: number;        // seconds of mouse trajectory to extrapolate
   }
 > = {
   kitten: {
@@ -81,6 +90,12 @@ export const DIFFICULTY_CONFIG: Record<
     payoutMultiplier: 1.5,
     description: "Clumsy AI, random walk. Easy 1.5x payout.",
     emoji: "🐱",
+    thinkingDepth: 1,
+    memoryTicks: 0,
+    usesTraps: false,
+    usesBoundedPursuit: false,
+    aggression: 0.3,
+    lookaheadSec: 0,
   },
   hunter: {
     label: "Hunter 🐯",
@@ -91,6 +106,12 @@ export const DIFFICULTY_CONFIG: Record<
     payoutMultiplier: 2.5,
     description: "Greedy chase with 1-step prediction. 2.5x payout.",
     emoji: "🐯",
+    thinkingDepth: 2,
+    memoryTicks: 3,
+    usesTraps: false,
+    usesBoundedPursuit: true,
+    aggression: 0.7,
+    lookaheadSec: 0.3,
   },
   strategist: {
     label: "Strategist 🦁",
@@ -101,6 +122,12 @@ export const DIFFICULTY_CONFIG: Record<
     payoutMultiplier: 5,
     description: "Deep predictive inference, ambush logic. 5x payout.",
     emoji: "🦁",
+    thinkingDepth: 4,
+    memoryTicks: 8,
+    usesTraps: true,
+    usesBoundedPursuit: true,
+    aggression: 0.9,
+    lookaheadSec: 0.9,
   },
 };
 

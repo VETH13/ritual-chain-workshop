@@ -1,8 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { mockTxHash } from "@/lib/ritual";
+import { verifyRitualTx, isRealTxHash } from "@/lib/onchain";
 
-// POST /api/game-record — save a finished game and "anchor" to Ritual testnet
+// POST /api/game-record
+// Body: {
+//   playerAddress, difficulty, wagerAmount, survivedMs, cheeseCollected,
+//   caught, inferenceHash,
+//   txHash?  ← if provided and real, we verify it on Ritual testnet
+// }
+//
+// If txHash is provided AND verifies on Ritual, we mark the record as
+// "onchain_verified: true" and use the real txHash.
+// Otherwise (dev/demo mode), we fall back to mockTxHash().
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
@@ -14,6 +25,7 @@ export async function POST(req: NextRequest) {
       cheeseCollected,
       caught,
       inferenceHash,
+      txHash,
     } = body;
 
     if (!playerAddress || !difficulty) {
@@ -30,8 +42,40 @@ export async function POST(req: NextRequest) {
       ? Math.floor(wagerAmount * payoutMultiplier)
       : 0;
 
-    // Mock "Ritual testnet tx hash" — simulates anchoring the inference proof
-    const ritualTxHash = mockTxHash(inferenceHash + playerAddress + Date.now());
+    // Determine the tx hash + verification status
+    let ritualTxHash: string;
+    let onchainVerified = false;
+    let verifyStatus: string;
+
+    if (txHash && isRealTxHash(txHash)) {
+      // Real Ritual testnet tx — verify it actually mined
+      const receipt = await verifyRitualTx(txHash);
+      if (receipt.confirmed) {
+        ritualTxHash = txHash;
+        onchainVerified = true;
+        verifyStatus = `verified on Ritual (block ${receipt.blockNumber})`;
+      } else if (receipt.status === "pending") {
+        // Tx submitted but not yet mined — accept optimistically, mark as pending
+        ritualTxHash = txHash;
+        onchainVerified = false;
+        verifyStatus = "tx pending on Ritual";
+      } else {
+        // Tx not found or failed — reject
+        return NextResponse.json(
+          {
+            error: `Transaction verification failed: ${receipt.status}`,
+            txHash,
+            status: receipt.status,
+          },
+          { status: 400 }
+        );
+      }
+    } else {
+      // Dev/demo mode — generate a mock tx hash
+      ritualTxHash = mockTxHash(inferenceHash + playerAddress + Date.now());
+      onchainVerified = false;
+      verifyStatus = "mock (no txHash provided)";
+    }
 
     const record = await db.gameRecord.create({
       data: {
@@ -81,6 +125,8 @@ export async function POST(req: NextRequest) {
       record,
       payoutAmount,
       ritualTxHash,
+      onchainVerified,
+      verifyStatus,
       won,
     });
   } catch (e: any) {
