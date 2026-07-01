@@ -10,28 +10,66 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// X-linked player profile
+model Player {
+  id           String   @id @default(cuid())
+  xHandle      String   @unique
+  xAvatarUrl   String?
+  walletAddress String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Relations
+  friendsFrom  Friend[] @relation("friendFrom")
+  friendsTo    Friend[] @relation("friendTo")
+  games        GameRecord[]
+  leaderboard  Leaderboard?
+}
+
+// Friendship (bidirectional via two rows or single row with accepted flag)
+model Friend {
+  id           String   @id @default(cuid())
+  fromHandle   String
+  toHandle     String
+  status       String   @default("pending") // pending | accepted | blocked
+  createdAt    DateTime @default(now())
+
+  from         Player   @relation("friendFrom", fields: [fromHandle], references: [xHandle])
+  to           Player   @relation("friendTo", fields: [toHandle], references: [xHandle])
+
+  @@unique([fromHandle, toHandle])
+  @@index([toHandle, status])
+}
+
 // On-chain (simulated) game records anchored to Ritual testnet
 model GameRecord {
   id            String   @id @default(cuid())
   playerAddress String
-  difficulty    String   // kitten | hunter | strategist
+  playerXHandle String?
+  difficulty    String   // kitten | hunter | strategist | pvp
   wagerAmount   Int      // in CHEESE wei
   survivedMs    Int
   cheeseCollected Int
   caught        Boolean
   payoutAmount  Int
   inferenceHash String   // hash of AI inference proof
-  ritualTxHash  String?  // mock tx hash on Ritual testnet
+  ritualTxHash  String?  // real tx hash on Ritual testnet
+  opponentXHandle String? // for PvP matches
   createdAt     DateTime @default(now())
+
+  player        Player?  @relation(fields: [playerXHandle], references: [xHandle])
 }
 
-// Leaderboard aggregate
+// Leaderboard aggregate (still kept for fast reads; on-chain is source of truth)
 model Leaderboard {
   id            String   @id
   playerAddress String
+  playerXHandle String?  @unique
   totalGames    Int      @default(0)
   wins          Int      @default(0)
   totalCheese   Int      @default(0)
   bestSurviveMs Int      @default(0)
   updatedAt     DateTime @updatedAt
+
+  player        Player?  @relation(fields: [playerXHandle], references: [xHandle])
 }

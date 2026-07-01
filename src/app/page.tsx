@@ -3,53 +3,48 @@
 import { useEffect, useState, useCallback } from "react";
 import { useWallet, shortAddr } from "@/hooks/use-wallet";
 import { useLang } from "@/hooks/use-lang";
+import { useXAuth } from "@/hooks/use-x-auth";
+import { usePvPSocket } from "@/hooks/use-pvp-socket";
 import {
   RITUAL_TESTNET,
-  CHEESE_TOKEN,
+  INFERENCE_REGISTRY,
   mockTxHash,
 } from "@/lib/ritual";
 import { DIFFICULTY_CONFIG, Difficulty } from "@/lib/game";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { Separator } from "@/components/ui/separator";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
 import {
   Wallet,
   Zap,
   Trophy,
   Coins,
   Crosshair,
-  Mouse as MouseIcon,
   Cat,
   Sparkles,
-  Github,
   ExternalLink,
   Loader2,
   CheckCircle2,
   AlertCircle,
   Flame,
   Languages,
+  Twitter,
+  LogOut,
+  Swords,
+  Users,
+  Leaderboard as LeaderboardIcon,
+  Gamepad2,
 } from "lucide-react";
 import { toast } from "sonner";
 import GameCanvas from "@/components/game/game-canvas";
-import type { Dict } from "@/lib/i18n";
-
-type TfFn = (key: keyof Dict, vars?: Record<string, string | number>) => string;
+import { XLoginModal } from "@/components/x-login-modal";
+import { FriendsPanel } from "@/components/friends-panel";
+import { LeaderboardPanel } from "@/components/leaderboard-panel";
+import { PvPPanel } from "@/components/pvp-panel";
 
 type Screen = "start" | "playing" | "ended";
+type Tab = "solo" | "pvp" | "friends" | "leaderboard";
 type LiveSnap = {
   elapsed: number;
   score: number;
@@ -59,7 +54,6 @@ type LiveSnap = {
   speedBoost: boolean;
   inHole: boolean;
 };
-
 type GameResult = {
   survivedMs: number;
   cheeseCollected: number;
@@ -67,16 +61,6 @@ type GameResult = {
   inferenceHash: string | null;
   inferenceCount: number;
 };
-
-type LeaderboardEntry = {
-  id: string;
-  playerAddress: string;
-  totalGames: number;
-  wins: number;
-  totalCheese: number;
-  bestSurviveMs: number;
-};
-
 type GameHistoryItem = {
   id: string;
   difficulty: string;
@@ -96,6 +80,9 @@ const STARTING_CHEESE = 1000;
 export default function Home() {
   const { wallet, connect, connecting, error, ensureRitual } = useWallet();
   const { lang, change, t, tf, pickerOpen, setPickerOpen, langs } = useLang();
+  const { session, login, logout, loading: xLoading } = useXAuth();
+
+  const [tab, setTab] = useState<Tab>("solo");
   const [screen, setScreen] = useState<Screen>("start");
   const [difficulty, setDifficulty] = useState<Difficulty>("hunter");
   const [wagerAmount, setWagerAmount] = useState<number>(50);
@@ -115,33 +102,32 @@ export default function Home() {
   const [payout, setPayout] = useState<number>(0);
   const [submitting, setSubmitting] = useState(false);
   const [onchainVerified, setOnchainVerified] = useState<boolean>(false);
-  const [leaderboard, setLeaderboard] = useState<LeaderboardEntry[]>([]);
   const [history, setHistory] = useState<GameHistoryItem[]>([]);
   const [claimed, setClaimed] = useState(false);
   const [bestStreak, setBestStreak] = useState(0);
   const [streak, setStreak] = useState(0);
 
-  // Load leaderboard on mount
-  useEffect(() => {
-    refreshLeaderboard();
-  }, []);
+  // PvP socket — only connect when logged in
+  const pvp = usePvPSocket(session?.handle ?? null, session?.avatarUrl ?? null);
 
-  const refreshLeaderboard = useCallback(async () => {
-    try {
-      const r = await fetch("/api/leaderboard");
-      const j = await r.json();
-      setLeaderboard(j.leaderboard ?? []);
-    } catch {
-      // ignore
-    }
-  }, []);
-
-  // Load player history & balance when wallet connects
+  // Load history when wallet connects
   useEffect(() => {
-    if (wallet.address) {
-      refreshHistory(wallet.address);
-    }
+    if (wallet.address) refreshHistory(wallet.address);
   }, [wallet.address]);
+
+  // Auto-link wallet to X profile when both are available
+  useEffect(() => {
+    if (session?.handle && wallet.address) {
+      fetch("/api/link-wallet", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          handle: session.handle,
+          walletAddress: wallet.address,
+        }),
+      }).catch(() => {});
+    }
+  }, [session?.handle, wallet.address]);
 
   const refreshHistory = useCallback(async (addr: string) => {
     try {
@@ -149,11 +135,9 @@ export default function Home() {
       const j = await r.json();
       const recs: GameHistoryItem[] = j.records ?? [];
       setHistory(recs);
-      // Compute balance: start - wagers + payouts
       let bal = STARTING_CHEESE;
       let best = 0;
       let cur = 0;
-      // Records come back newest-first; iterate oldest-first so streak ends at "now"
       const chronological = [...recs].reverse();
       for (const rec of chronological) {
         bal -= rec.wagerAmount;
@@ -168,12 +152,9 @@ export default function Home() {
       setBalance(Math.max(0, bal));
       setStreak(cur);
       setBestStreak(best);
-    } catch {
-      // ignore
-    }
+    } catch {}
   }, []);
 
-  // Claim faucet
   const claimFaucet = useCallback(async () => {
     if (!wallet.address) return;
     try {
@@ -187,15 +168,12 @@ export default function Home() {
         setClaimed(true);
         setBalance(STARTING_CHEESE);
         toast.success(j.message);
-      } else {
-        toast.error(j.error || t.faucetClaimFailed);
-      }
+      } else toast.error(j.error || t.faucetClaimFailed);
     } catch (e: any) {
       toast.error(e?.message ?? t.faucetFailed);
     }
   }, [wallet.address, t]);
 
-  // Start a new game
   const startGame = useCallback(async () => {
     if (!wallet.address) {
       toast.error(t.connectFirst);
@@ -228,14 +206,13 @@ export default function Home() {
     setScreen("playing");
   }, [wallet, ensureRitual, wagerAmount, balance, t]);
 
-  // Called when game ends
   const handleGameEnd = useCallback(
     async (r: GameResult) => {
       setResult(r);
       setScreen("ended");
       setSubmitting(true);
       try {
-        // Step 1: Get calldata from the server for the InferenceRegistry.recordGame() call
+        // On-chain anchor via wallet
         let submittedTxHash: string | null = null;
         let onchainAnchor = false;
         try {
@@ -251,8 +228,6 @@ export default function Home() {
             }),
           });
           const submitJson = await submitResp.json();
-
-          // Step 2: If server returned calldata, fire a real wallet tx
           if (
             submitJson.needsWalletSubmit &&
             submitJson.to &&
@@ -261,7 +236,6 @@ export default function Home() {
             window.ethereum
           ) {
             try {
-              // Ensure we're on Ritual testnet (chain 1979)
               const chainId: string = await window.ethereum.request({
                 method: "eth_chainId",
               });
@@ -271,41 +245,27 @@ export default function Home() {
                   params: [{ chainId: "0x7bb" }],
                 });
               }
-              // Prompt user to sign the recordGame() tx
               const txHashFromWallet: string = await window.ethereum.request({
                 method: "eth_sendTransaction",
-                params: [
-                  {
-                    from: submitJson.from,
-                    to: submitJson.to,
-                    data: submitJson.data,
-                  },
-                ],
+                params: [{ from: submitJson.from, to: submitJson.to, data: submitJson.data }],
               });
               submittedTxHash = txHashFromWallet;
               onchainAnchor = true;
               toast.info("🔗 Transaction submitted, waiting for confirmation...");
-              // Wait a moment for the tx to be mined (~350ms block time on Ritual)
               await new Promise((res) => setTimeout(res, 2000));
             } catch (walletErr: any) {
-              // User rejected or wallet error — fall through to mock
               console.warn("Wallet submit failed:", walletErr?.message);
               toast.warning("Onchain anchor skipped — saving as mock record.");
             }
-          } else if (submitJson.txHash) {
-            // Server returned a pre-existing txHash (mock mode)
-            submittedTxHash = submitJson.txHash;
           }
-        } catch {
-          // Onchain submit failed — fall through to mock
-        }
+        } catch {}
 
-        // Step 3: Save the game record (with txHash if we got one)
         const resp = await fetch("/api/game-record", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             playerAddress: wallet.address,
+            playerXHandle: session?.handle,
             difficulty,
             wagerAmount,
             survivedMs: r.survivedMs,
@@ -333,11 +293,8 @@ export default function Home() {
             setBalance((b) => b - wagerAmount);
             toast.error(tf("caughtYou", { n: wagerAmount }));
           }
-          if (j.onchainVerified) {
-            toast.success("🔗 Verified on Ritual testnet!");
-          }
+          if (j.onchainVerified) toast.success("🔗 Verified on Ritual testnet!");
           if (wallet.address) refreshHistory(wallet.address);
-          refreshLeaderboard();
         }
       } catch (e: any) {
         toast.error(e?.message ?? t.failedSave);
@@ -345,33 +302,34 @@ export default function Home() {
         setSubmitting(false);
       }
     },
-    [wallet.address, difficulty, wagerAmount, refreshHistory, refreshLeaderboard, t, tf]
+    [wallet.address, session?.handle, difficulty, wagerAmount, refreshHistory, t, tf]
   );
 
-  // Live update throttled
-  const handleLiveUpdate = useCallback((s: LiveSnap) => {
-    setLive(s);
-  }, []);
-
+  const handleLiveUpdate = useCallback((s: LiveSnap) => setLive(s), []);
   const cfg = DIFFICULTY_CONFIG[difficulty];
   const progressPct = Math.min(100, (live.elapsed / GAME_DURATION) * 100);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-[#070b18] via-[#0a0e1f] to-[#0d0418] text-slate-100">
-      {/* Background grid pattern */}
-      <div
-        className="pointer-events-none fixed inset-0 opacity-[0.04]"
-        style={{
-          backgroundImage:
-            "linear-gradient(rgba(124,159,255,0.4) 1px, transparent 1px), linear-gradient(90deg, rgba(124,159,255,0.4) 1px, transparent 1px)",
-          backgroundSize: "32px 32px",
-        }}
-      />
-      {/* Top bar */}
-      <header className="relative z-10 border-b border-rose-500/15 backdrop-blur">
+    <div className="min-h-screen bg-[#06070d] text-slate-100 relative overflow-hidden">
+      {/* Animated background */}
+      <div className="pointer-events-none fixed inset-0 z-0">
+        <div className="absolute top-0 left-1/4 w-[600px] h-[600px] bg-rose-500/10 rounded-full blur-[120px] animate-pulse" />
+        <div className="absolute bottom-0 right-1/4 w-[500px] h-[500px] bg-cyan-500/10 rounded-full blur-[120px] animate-pulse" style={{ animationDelay: "1s" }} />
+        <div className="absolute top-1/2 left-1/2 w-[400px] h-[400px] bg-purple-500/10 rounded-full blur-[100px] animate-pulse" style={{ animationDelay: "2s" }} />
+        <div
+          className="absolute inset-0 opacity-[0.025]"
+          style={{
+            backgroundImage:
+              "linear-gradient(rgba(124,159,255,0.4) 1px, transparent 1px), linear-gradient(90deg, rgba(124,159,255,0.4) 1px, transparent 1px)",
+            backgroundSize: "48px 48px",
+          }}
+        />
+      </div>
+
+      {/* Header */}
+      <header className="relative z-20 border-b border-white/5 backdrop-blur-xl bg-black/20">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
-            {/* Ritual logo badge */}
             <div className="relative">
               <img
                 src="/logo-badge.png"
@@ -388,23 +346,21 @@ export default function Home() {
             <div>
               <h1 className="font-mono text-lg font-bold tracking-tight">
                 RITUAL CAT
-                <span className="bg-gradient-to-r from-rose-400 to-cyan-400 bg-clip-text text-transparent">
+                <span className="bg-gradient-to-r from-rose-400 via-purple-400 to-cyan-400 bg-clip-text text-transparent">
                   {" "}
                   × CHAIN MOUSE
                 </span>
               </h1>
-              <p className="text-[11px] text-slate-400">
-                {t.tagline}
-              </p>
+              <p className="text-[11px] text-slate-400">{t.tagline}</p>
             </div>
           </div>
+
           <div className="flex items-center gap-2">
-            {/* Language picker dropdown */}
+            {/* Language picker */}
             <div className="relative">
               <button
                 onClick={() => setPickerOpen(!pickerOpen)}
-                className="group flex items-center gap-1.5 rounded-md border border-slate-700 bg-slate-900/60 px-2.5 py-1.5 text-xs font-mono text-slate-300 hover:border-rose-500/40 hover:text-rose-300 transition-colors"
-                title="Language"
+                className="group flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs font-mono text-slate-300 hover:border-rose-500/40 hover:text-rose-300 transition-all"
                 aria-label="Select language"
                 aria-expanded={pickerOpen}
               >
@@ -412,44 +368,26 @@ export default function Home() {
                 <span className="font-bold text-rose-300">
                   {langs.find((l) => l.code === lang)?.label ?? "EN"}
                 </span>
-                <svg
-                  className={`h-3 w-3 transition-transform ${pickerOpen ? "rotate-180" : ""}`}
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
+                <svg className={`h-3 w-3 transition-transform ${pickerOpen ? "rotate-180" : ""}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
                   <path d="M6 9l6 6 6-6" />
                 </svg>
               </button>
               {pickerOpen && (
                 <>
-                  {/* Click-away overlay */}
-                  <div
-                    className="fixed inset-0 z-40"
-                    onClick={() => setPickerOpen(false)}
-                  />
-                  <div className="absolute right-0 top-full z-50 mt-1 w-36 overflow-hidden rounded-md border border-slate-700 bg-slate-900 shadow-xl">
+                  <div className="fixed inset-0 z-40" onClick={() => setPickerOpen(false)} />
+                  <div className="absolute right-0 top-full z-50 mt-1 w-36 overflow-hidden rounded-lg border border-white/10 bg-slate-950/95 shadow-xl backdrop-blur-xl">
                     {langs.map((l) => (
                       <button
                         key={l.code}
                         onClick={() => change(l.code)}
-                        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-slate-800 transition-colors ${
-                          lang === l.code
-                            ? "bg-rose-500/10 text-rose-300"
-                            : "text-slate-300"
+                        className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-white/5 transition-colors ${
+                          lang === l.code ? "bg-rose-500/10 text-rose-300" : "text-slate-300"
                         }`}
                       >
                         <span className="text-base">{l.flag}</span>
                         <span className="font-mono font-bold">{l.label}</span>
                         {lang === l.code && (
-                          <svg
-                            className="ml-auto h-3 w-3"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="3"
-                          >
+                          <svg className="ml-auto h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
                             <path d="M5 13l4 4L19 7" />
                           </svg>
                         )}
@@ -459,23 +397,42 @@ export default function Home() {
                 </>
               )}
             </div>
-            <Badge
-              variant="outline"
-              className="border-rose-500/30 bg-rose-500/10 text-rose-300"
-            >
+
+            {session && (
+              <div className="flex items-center gap-2 rounded-lg border border-sky-500/30 bg-sky-500/10 px-2.5 py-1.5">
+                <img
+                  src={session.avatarUrl}
+                  alt={session.handle}
+                  className="h-5 w-5 rounded-full"
+                />
+                <span className="font-mono text-xs font-bold text-sky-300">
+                  @{session.handle}
+                </span>
+                <button
+                  onClick={logout}
+                  className="text-slate-500 hover:text-rose-400"
+                  title="Logout"
+                >
+                  <LogOut className="h-3 w-3" />
+                </button>
+              </div>
+            )}
+
+            <Badge variant="outline" className="border-rose-500/30 bg-rose-500/10 text-rose-300 hidden sm:flex">
               <Flame className="mr-1 h-3 w-3" />
               {t.streak}: {streak} ({t.best} {bestStreak})
             </Badge>
-            <Badge
-              variant="outline"
-              className="border-amber-400/30 bg-amber-400/10 text-amber-300"
-            >
+            <Badge variant="outline" className="border-amber-400/30 bg-amber-400/10 text-amber-300 hidden sm:flex">
               <Coins className="mr-1 h-3 w-3" />
               {balance} CHEESE
             </Badge>
+
+            {!session && <XLoginModal onLogin={login} loading={xLoading} />}
+
             <Button
               onClick={connect}
               disabled={connecting || wallet.connected}
+              size="sm"
               className="gap-2 bg-gradient-to-r from-rose-500 to-purple-600 hover:from-rose-400 hover:to-purple-500"
             >
               <Wallet className="h-4 w-4" />
@@ -495,21 +452,28 @@ export default function Home() {
         {!wallet.isRitual && wallet.connected && (
           <div className="border-t border-amber-500/20 bg-amber-500/10 px-4 py-2 text-center text-xs text-amber-300">
             ⚠️ {t.wrongNetwork}
-            <Button
-              size="sm"
-              variant="outline"
-              className="ml-2 h-6 border-amber-400/40 text-amber-300"
-              onClick={ensureRitual}
-            >
+            <Button size="sm" variant="outline" className="ml-2 h-6 border-amber-400/40 text-amber-300" onClick={ensureRitual}>
               {t.switch}
             </Button>
           </div>
         )}
       </header>
 
+      {/* Tab nav */}
+      <nav className="relative z-10 mx-auto max-w-7xl px-4 pt-4">
+        <div className="flex gap-1 rounded-2xl border border-white/5 bg-white/5 p-1 backdrop-blur-xl overflow-x-auto">
+          <TabButton active={tab === "solo"} onClick={() => setTab("solo")} icon={<Gamepad2 className="h-4 w-4" />} label={t.tabSolo} />
+          <TabButton active={tab === "pvp"} onClick={() => setTab("pvp")} icon={<Swords className="h-4 w-4" />} label={t.tabPvP} disabled={!session} />
+          <TabButton active={tab === "friends"} onClick={() => setTab("friends")} icon={<Users className="h-4 w-4" />} label={t.tabFriends} disabled={!session} />
+          <TabButton active={tab === "leaderboard"} onClick={() => setTab("leaderboard")} icon={<Trophy className="h-4 w-4" />} label={t.tabLeaderboard} />
+        </div>
+      </nav>
+
+      {/* Main content */}
       <main className="relative z-10 mx-auto max-w-7xl px-4 py-6">
-        {screen === "start" && (
-          <StartScreen
+        {tab === "solo" && (
+          <SoloTab
+            screen={screen}
             difficulty={difficulty}
             setDifficulty={setDifficulty}
             wagerAmount={wagerAmount}
@@ -519,58 +483,48 @@ export default function Home() {
             onStart={startGame}
             onClaim={claimFaucet}
             claimed={claimed}
-            leaderboard={leaderboard}
             history={history}
-            t={t}
-            tf={tf}
-          />
-        )}
-
-        {screen === "playing" && (
-          <PlayingScreen
-            difficulty={difficulty}
             paused={paused}
             setPaused={setPaused}
             live={live}
             progressPct={progressPct}
             onEnd={handleGameEnd}
             onLiveUpdate={handleLiveUpdate}
-            onAbort={() => {
-              setScreen("start");
-            }}
-            t={t}
-            tf={tf}
-          />
-        )}
-
-        {screen === "ended" && result && (
-          <EndedScreen
             result={result}
-            difficulty={difficulty}
-            wagerAmount={wagerAmount}
             txHash={txHash}
             payout={payout}
             submitting={submitting}
             onchainVerified={onchainVerified}
-            onPlayAgain={() => {
-              setScreen("start");
-            }}
             t={t}
             tf={tf}
           />
         )}
+
+        {tab === "pvp" && session && (
+          <PvPPanel t={t} myHandle={session.handle} myAvatarUrl={session.avatarUrl} pvp={pvp} />
+        )}
+        {tab === "pvp" && !session && <LoginRequired t={t} />}
+
+        {tab === "friends" && session && (
+          <FriendsPanel
+            myHandle={session.handle}
+            t={t}
+            onChallenge={pvp.challengeFriend}
+            incomingChallenge={pvp.challenge}
+            onAcceptChallenge={pvp.acceptChallenge}
+            onDeclineChallenge={pvp.declineChallenge}
+          />
+        )}
+        {tab === "friends" && !session && <LoginRequired t={t} />}
+
+        {tab === "leaderboard" && <LeaderboardPanel t={t} />}
       </main>
 
-      <footer className="relative z-10 border-t border-slate-800 px-4 py-6 text-center text-xs text-slate-500">
+      <footer className="relative z-10 border-t border-white/5 px-4 py-6 text-center text-xs text-slate-500">
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-2 sm:flex-row">
           <p>
             {t.footerBuiltOn}{" "}
-            <a
-              href="https://ritual.net"
-              target="_blank"
-              rel="noreferrer"
-              className="text-rose-400 hover:underline"
-            >
+            <a href="https://ritual.net" target="_blank" rel="noreferrer" className="text-rose-400 hover:underline">
               Ritual testnet
             </a>{" "}
             · {t.footerAi}{" "}
@@ -578,21 +532,11 @@ export default function Home() {
             {t.footerNotReal} 🧀
           </p>
           <div className="flex items-center gap-3">
-            <a
-              href="https://docs.ritual.net"
-              target="_blank"
-              rel="noreferrer"
-              className="hover:text-slate-300"
-            >
+            <a href="https://docs.ritual.net" target="_blank" rel="noreferrer" className="hover:text-slate-300">
               {t.docs}
             </a>
             <span>·</span>
-            <a
-              href="https://explorer.ritualfoundation.org"
-              target="_blank"
-              rel="noreferrer"
-              className="hover:text-slate-300"
-            >
+            <a href="https://explorer.ritualfoundation.org" target="_blank" rel="noreferrer" className="hover:text-slate-300">
               {t.explorer}
             </a>
           </div>
@@ -602,8 +546,56 @@ export default function Home() {
   );
 }
 
-/* ---------------- Start Screen ---------------- */
-function StartScreen({
+function TabButton({
+  active,
+  onClick,
+  icon,
+  label,
+  disabled,
+}: {
+  active: boolean;
+  onClick: () => void;
+  icon: React.ReactNode;
+  label: string;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-mono font-bold transition-all ${
+        active
+          ? "bg-gradient-to-r from-rose-500/20 to-purple-500/20 text-rose-300 shadow-[inset_0_0_20px_rgba(255,77,109,0.15)]"
+          : disabled
+          ? "text-slate-700 cursor-not-allowed"
+          : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+      }`}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
+function LoginRequired({ t }: { t: any }) {
+  return (
+    <div className="flex flex-col items-center justify-center py-20 text-center">
+      <div className="mb-4 text-6xl">🔐</div>
+      <h2 className="font-mono text-2xl font-bold text-slate-300 mb-2">
+        Login required
+      </h2>
+      <p className="text-sm text-slate-500 mb-6 max-w-md">
+        Connect your X account to access this feature. Your X avatar becomes
+        your in-game character.
+      </p>
+      <XLoginModal onLogin={async () => false} loading={false} />
+    </div>
+  );
+}
+
+/* ---------------- Solo Tab ---------------- */
+function SoloTab({
+  screen,
   difficulty,
   setDifficulty,
   wagerAmount,
@@ -613,44 +605,74 @@ function StartScreen({
   onStart,
   onClaim,
   claimed,
-  leaderboard,
   history,
+  paused,
+  setPaused,
+  live,
+  progressPct,
+  onEnd,
+  onLiveUpdate,
+  result,
+  txHash,
+  payout,
+  submitting,
+  onchainVerified,
   t,
   tf,
-}: {
-  difficulty: Difficulty;
-  setDifficulty: (d: Difficulty) => void;
-  wagerAmount: number;
-  setWagerAmount: (n: number) => void;
-  balance: number;
-  wallet: { connected: boolean; address: string | null; isRitual: boolean };
-  onStart: () => void;
-  onClaim: () => void;
-  claimed: boolean;
-  leaderboard: LeaderboardEntry[];
-  history: GameHistoryItem[];
-  t: Dict;
-  tf: TfFn;
-}) {
-  const cfg = DIFFICULTY_CONFIG[difficulty];
+}: any) {
+  const cfg = DIFFICULTY_CONFIG[difficulty as Difficulty];
   const diffLabel = (d: Difficulty) =>
     d === "kitten" ? t.kitten : d === "hunter" ? t.hunter : t.strategist;
   const diffDesc = (d: Difficulty) =>
-    d === "kitten"
-      ? t.kittenDesc
-      : d === "hunter"
-      ? t.hunterDesc
-      : t.strategistDesc;
+    d === "kitten" ? t.kittenDesc : d === "hunter" ? t.hunterDesc : t.strategistDesc;
+
+  if (screen === "playing") {
+    return (
+      <SoloPlaying
+        difficulty={difficulty}
+        paused={paused}
+        setPaused={setPaused}
+        live={live}
+        progressPct={progressPct}
+        onEnd={onEnd}
+        onLiveUpdate={onLiveUpdate}
+        t={t}
+      />
+    );
+  }
+
+  if (screen === "ended" && result) {
+    return (
+      <SoloEnded
+        result={result}
+        difficulty={difficulty}
+        wagerAmount={wagerAmount}
+        txHash={txHash}
+        payout={payout}
+        submitting={submitting}
+        onchainVerified={onchainVerified}
+        onPlayAgain={() => {}}
+        t={t}
+        tf={tf}
+      />
+    );
+  }
+
+  // Start screen
   return (
     <div className="grid gap-6 lg:grid-cols-3">
-      {/* Left: Hero & game */}
       <div className="lg:col-span-2 space-y-4">
-        <Card className="overflow-hidden border-rose-500/30 bg-gradient-to-br from-slate-900/80 to-purple-950/40 backdrop-blur">
-          <CardHeader>
-            <Badge className="w-fit gap-1 border-rose-500/40 bg-rose-500/10 text-rose-300">
+        {/* Hero */}
+        <div className="relative overflow-hidden rounded-3xl border border-white/10 bg-gradient-to-br from-rose-950/40 via-slate-950/60 to-cyan-950/40 p-8 backdrop-blur-xl">
+          <div className="absolute inset-0 opacity-30">
+            <div className="absolute top-4 right-4 text-9xl opacity-20">🐱</div>
+            <div className="absolute bottom-4 left-4 text-7xl opacity-20">🐭</div>
+          </div>
+          <div className="relative z-10">
+            <Badge className="mb-4 gap-1 border-rose-500/40 bg-rose-500/10 text-rose-300">
               <Sparkles className="h-3 w-3" /> {t.badgeOnchain}
             </Badge>
-            <CardTitle className="font-mono text-3xl tracking-tight">
+            <h2 className="font-mono text-4xl md:text-5xl font-bold tracking-tight mb-3">
               {t.heroTitleA}
               <span className="bg-gradient-to-r from-rose-400 to-amber-300 bg-clip-text text-transparent">
                 {t.heroTitleAEmph}
@@ -660,241 +682,131 @@ function StartScreen({
                 {t.heroTitleBEmph}
               </span>
               {t.heroTitleC}
-            </CardTitle>
-            <CardDescription className="text-slate-300">
-              {t.heroDesc}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-5">
-            {/* Difficulty picker */}
-            <div>
-              <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                {t.choosePredator}
+            </h2>
+            <p className="text-slate-300 max-w-2xl">{t.heroDesc}</p>
+          </div>
+        </div>
+
+        {/* Difficulty + Wager */}
+        <div className="rounded-3xl border border-white/10 bg-slate-950/60 p-6 backdrop-blur-xl space-y-5">
+          <div>
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-slate-400">
+              {t.choosePredator}
+            </p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {(Object.keys(DIFFICULTY_CONFIG) as Difficulty[]).map((d) => {
+                const c = DIFFICULTY_CONFIG[d];
+                const active = difficulty === d;
+                return (
+                  <button
+                    key={d}
+                    onClick={() => setDifficulty(d)}
+                    className={`group relative rounded-2xl border p-4 text-left transition-all ${
+                      active
+                        ? "border-rose-500 bg-rose-500/10 shadow-[0_0_30px_rgba(255,77,109,0.2)]"
+                        : "border-white/10 bg-white/5 hover:border-rose-500/40 hover:bg-white/10"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-3xl">{c.emoji}</span>
+                      <span className="font-mono text-xs text-amber-300 bg-amber-400/10 px-2 py-0.5 rounded-full">
+                        {c.payoutMultiplier}x
+                      </span>
+                    </div>
+                    <div className="font-mono text-sm font-bold text-slate-100">
+                      {diffLabel(d)}
+                    </div>
+                    <div className="text-[11px] leading-snug text-slate-400 mt-1">
+                      {diffDesc(d)}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
+                {t.wagerLabel}
               </p>
-              <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
-                {(Object.keys(DIFFICULTY_CONFIG) as Difficulty[]).map((d) => {
-                  const c = DIFFICULTY_CONFIG[d];
-                  const active = difficulty === d;
-                  return (
-                    <button
-                      key={d}
-                      onClick={() => setDifficulty(d)}
-                      className={`group rounded-lg border p-3 text-left transition-all ${
-                        active
-                          ? "border-rose-500 bg-rose-500/10 shadow-[0_0_20px_rgba(255,77,109,0.2)]"
-                          : "border-slate-700 bg-slate-900/40 hover:border-rose-500/40 hover:bg-slate-900/70"
-                      }`}
-                    >
-                      <div className="flex items-center justify-between">
-                        <span className="text-2xl">{c.emoji}</span>
-                        <span className="font-mono text-xs text-amber-300">
-                          {c.payoutMultiplier}x
-                        </span>
-                      </div>
-                      <div className="mt-1 font-mono text-sm font-bold">
-                        {diffLabel(d)}
-                      </div>
-                      <div className="text-[11px] leading-snug text-slate-400">
-                        {diffDesc(d)}
-                      </div>
-                    </button>
-                  );
-                })}
-              </div>
+              <p className="font-mono text-sm text-amber-300">
+                {wagerAmount} → {t.winAmount}{" "}
+                {Math.floor(wagerAmount * cfg.payoutMultiplier)}
+              </p>
             </div>
-
-            {/* Wager slider */}
-            <div>
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  {t.wagerLabel}
-                </p>
-                <p className="font-mono text-sm text-amber-300">
-                  {wagerAmount} → {t.winAmount}{" "}
-                  {Math.floor(wagerAmount * cfg.payoutMultiplier)}
-                </p>
-              </div>
-              <input
-                type="range"
-                min={10}
-                max={Math.min(500, Math.max(10, balance))}
-                step={10}
-                value={wagerAmount}
-                onChange={(e) => setWagerAmount(Number(e.target.value))}
-                className="w-full accent-rose-500"
-              />
-              <div className="mt-1 flex justify-between text-[10px] text-slate-500">
-                <span>10</span>
-                <span>
-                  {t.balanceLabel}: {balance}
-                </span>
-                <span>{Math.min(500, Math.max(10, balance))}</span>
-              </div>
+            <input
+              type="range"
+              min={10}
+              max={Math.min(500, Math.max(10, balance))}
+              step={10}
+              value={wagerAmount}
+              onChange={(e) => setWagerAmount(Number(e.target.value))}
+              className="w-full accent-rose-500"
+            />
+            <div className="mt-1 flex justify-between text-[10px] text-slate-500">
+              <span>10</span>
+              <span>{t.balanceLabel}: {balance}</span>
+              <span>{Math.min(500, Math.max(10, balance))}</span>
             </div>
+          </div>
 
-            {/* Action buttons */}
-            <div className="flex flex-wrap items-center gap-3">
-              <Button
-                onClick={onStart}
-                disabled={!wallet.connected}
-                className="gap-2 bg-gradient-to-r from-rose-500 to-purple-600 text-base font-bold hover:from-rose-400 hover:to-purple-500"
-                size="lg"
-              >
-                <Crosshair className="h-5 w-5" />
-                {t.startHunt}
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              onClick={onStart}
+              disabled={!wallet.connected}
+              className="gap-2 bg-gradient-to-r from-rose-500 to-purple-600 text-base font-bold hover:from-rose-400 hover:to-purple-500 shadow-lg shadow-rose-500/30"
+              size="lg"
+            >
+              <Crosshair className="h-5 w-5" />
+              {t.startHunt}
+            </Button>
+            {wallet.connected && balance === 0 && !claimed && (
+              <Button onClick={onClaim} variant="outline" className="gap-2 border-amber-400/40 text-amber-300">
+                <Coins className="h-4 w-4" />
+                {t.claimFaucet}
               </Button>
-              {wallet.connected && balance === 0 && !claimed && (
-                <Button
-                  onClick={onClaim}
-                  variant="outline"
-                  className="gap-2 border-amber-400/40 text-amber-300"
-                >
-                  <Coins className="h-4 w-4" />
-                  {t.claimFaucet}
-                </Button>
-              )}
-              {!wallet.connected && (
-                <p className="text-xs text-slate-400">🔗 {t.connectToPlay}</p>
-              )}
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* How to play */}
-        <Card className="border-cyan-500/20 bg-slate-900/60 backdrop-blur">
-          <CardHeader>
-            <CardTitle className="font-mono text-lg">{t.howToPlay}</CardTitle>
-          </CardHeader>
-          <CardContent className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-            <HowToPlayItem icon="WASD" title={t.move} desc={t.moveDesc} />
-            <HowToPlayItem
-              icon="🧀"
-              title={t.collectCheese}
-              desc={t.collectCheeseDesc}
-            />
-            <HowToPlayItem
-              icon="🕳️"
-              title={t.hideInHoles}
-              desc={t.hideInHolesDesc}
-            />
-            <HowToPlayItem
-              icon="⚡"
-              title={t.grabBoosts}
-              desc={t.grabBoostsDesc}
-            />
-            <HowToPlayItem
-              icon="SPACE"
-              title={t.dropDecoy}
-              desc={t.dropDecoyDesc}
-            />
-            <HowToPlayItem
-              icon="⏱️"
-              title={t.survive60s}
-              desc={t.survive60sDesc}
-            />
-            <HowToPlayItem
-              icon="🧠"
-              title={t.aiInference}
-              desc={t.aiInferenceDesc}
-            />
-            <HowToPlayItem
-              icon="💰"
-              title={t.multiplierPayout}
-              desc={t.multiplierPayoutDesc}
-            />
-          </CardContent>
-        </Card>
+            )}
+            {!wallet.connected && (
+              <p className="text-xs text-slate-400">🔗 {t.connectToPlay}</p>
+            )}
+          </div>
+        </div>
       </div>
 
-      {/* Right: Leaderboard & history */}
+      {/* Right rail */}
       <div className="space-y-4">
-        <Card className="border-amber-400/20 bg-slate-900/60 backdrop-blur">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 font-mono text-base">
-              <Trophy className="h-4 w-4 text-amber-400" />
-              {t.leaderboard}
-            </CardTitle>
-            <CardDescription className="text-xs">
-              {t.leaderboardDesc}
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
-              {leaderboard.length === 0 && (
-                <p className="py-6 text-center text-xs text-slate-500">
-                  {t.noSurvivors}
-                </p>
-              )}
-              {leaderboard.slice(0, 10).map((e, i) => (
-                <div
-                  key={e.id}
-                  className="flex items-center justify-between rounded-md px-2 py-1.5 text-xs hover:bg-slate-800/50"
-                >
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${
-                        i === 0
-                          ? "bg-amber-400 text-black"
-                          : i === 1
-                          ? "bg-slate-300 text-black"
-                          : i === 2
-                          ? "bg-amber-700 text-white"
-                          : "bg-slate-700 text-slate-300"
-                      }`}
-                    >
-                      {i + 1}
-                    </span>
-                    <span className="font-mono text-slate-300">
-                      {shortAddr(e.playerAddress)}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-2 text-slate-400">
-                    <span title="Wins">
-                      <CheckCircle2 className="mr-0.5 inline h-3 w-3 text-emerald-400" />
-                      {e.wins}
-                    </span>
-                    <span title="Best survive">
-                      {(e.bestSurviveMs / 1000).toFixed(1)}
-                      {t.seconds}
-                    </span>
-                    <span title="Cheese" className="text-amber-300">
-                      🧀{e.totalCheese}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
+        <div className="rounded-2xl border border-cyan-500/20 bg-slate-950/60 p-4 backdrop-blur-xl">
+          <h3 className="font-mono text-sm font-bold text-cyan-300 mb-3">
+            {t.howToPlay}
+          </h3>
+          <div className="grid grid-cols-2 gap-2 text-xs">
+            <MiniHowTo icon="WASD" label={t.move} />
+            <MiniHowTo icon="🧀" label={t.collectCheese} />
+            <MiniHowTo icon="🕳️" label={t.hideInHoles} />
+            <MiniHowTo icon="⚡" label={t.grabBoosts} />
+            <MiniHowTo icon="SPACE" label={t.dropDecoy} />
+            <MiniHowTo icon="⏱️" label={t.survive60s} />
+          </div>
+        </div>
 
         {wallet.connected && (
-          <Card className="border-cyan-500/20 bg-slate-900/60 backdrop-blur">
-            <CardHeader className="pb-3">
-              <CardTitle className="flex items-center gap-2 font-mono text-base">
-                <MouseIcon className="h-4 w-4 text-cyan-400" />
-                {t.yourLastRuns}
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="max-h-64 space-y-1 overflow-y-auto pr-1">
-                {history.length === 0 && (
-                  <p className="py-6 text-center text-xs text-slate-500">
-                    {t.noGames}
-                  </p>
-                )}
-                {history.slice(0, 10).map((h) => (
-                  <div
-                    key={h.id}
-                    className="rounded-md border border-slate-800 bg-slate-900/40 px-2 py-1.5 text-xs"
-                  >
+          <div className="rounded-2xl border border-purple-500/20 bg-slate-950/60 p-4 backdrop-blur-xl">
+            <h3 className="font-mono text-sm font-bold text-purple-300 mb-3">
+              {t.yourLastRuns}
+            </h3>
+            <div className="max-h-64 space-y-1 overflow-y-auto pr-1">
+              {history.length === 0 ? (
+                <p className="py-6 text-center text-xs text-slate-500">{t.noGames}</p>
+              ) : (
+                history.slice(0, 10).map((h: GameHistoryItem) => (
+                  <div key={h.id} className="rounded-md border border-white/5 bg-white/5 px-2 py-1.5 text-xs">
                     <div className="flex items-center justify-between">
                       <span className="font-mono text-slate-300">
                         {h.caught ? "💀" : "🎉"} {h.difficulty}
                       </span>
                       <span className="text-amber-300">
-                        {h.caught
-                          ? `-${h.wagerAmount}`
-                          : `+${h.payoutAmount - h.wagerAmount}`}
+                        {h.caught ? `-${h.wagerAmount}` : `+${h.payoutAmount - h.wagerAmount}`}
                       </span>
                     </div>
                     <div className="mt-0.5 flex justify-between text-[10px] text-slate-500">
@@ -903,46 +815,41 @@ function StartScreen({
                         {t.seconds} · 🧀{h.cheeseCollected}
                       </span>
                       {h.ritualTxHash && (
-                        <span className="font-mono">
-                          {h.ritualTxHash?.slice(0, 10)}…
-                        </span>
+                        <a
+                          href={`https://explorer.ritualfoundation.org/tx/${h.ritualTxHash}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-mono text-cyan-400 hover:underline"
+                        >
+                          {h.ritualTxHash.slice(0, 8)}…
+                        </a>
                       )}
                     </div>
                   </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+                ))
+              )}
+            </div>
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-function HowToPlayItem({
-  icon,
-  title,
-  desc,
-}: {
-  icon: string;
-  title: string;
-  desc: string;
-}) {
+function MiniHowTo({ icon, label }: { icon: string; label: string }) {
   return (
-    <div className="rounded-md border border-slate-800 bg-slate-900/40 p-2">
-      <div className="flex items-center gap-2">
-        <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[10px] text-cyan-300">
+    <div className="rounded-lg border border-white/5 bg-white/5 p-2">
+      <div className="flex items-center gap-1.5">
+        <span className="rounded bg-slate-800 px-1.5 py-0.5 font-mono text-[9px] text-cyan-300">
           {icon}
         </span>
-        <span className="text-xs font-semibold">{title}</span>
+        <span className="text-[11px] font-semibold text-slate-200">{label}</span>
       </div>
-      <p className="mt-1 text-[11px] leading-snug text-slate-400">{desc}</p>
     </div>
   );
 }
 
-/* ---------------- Playing Screen ---------------- */
-function PlayingScreen({
+function SoloPlaying({
   difficulty,
   paused,
   setPaused,
@@ -950,179 +857,53 @@ function PlayingScreen({
   progressPct,
   onEnd,
   onLiveUpdate,
-  onAbort,
   t,
-  tf,
-}: {
-  difficulty: Difficulty;
-  paused: boolean;
-  setPaused: (p: boolean) => void;
-  live: LiveSnap;
-  progressPct: number;
-  onEnd: (r: GameResult) => void;
-  onLiveUpdate: (s: LiveSnap) => void;
-  onAbort: () => void;
-  t: Dict;
-  tf: TfFn;
-}) {
-  const cfg = DIFFICULTY_CONFIG[difficulty];
+}: any) {
+  const cfg = DIFFICULTY_CONFIG[difficulty as Difficulty];
   const secondsLeft = ((GAME_DURATION - live.elapsed) / 1000).toFixed(1);
   const diffLabel =
-    difficulty === "kitten"
-      ? t.kitten
-      : difficulty === "hunter"
-      ? t.hunter
-      : t.strategist;
+    difficulty === "kitten" ? t.kitten : difficulty === "hunter" ? t.hunter : t.strategist;
   return (
-    <div className="grid gap-4 lg:grid-cols-4">
-      <div className="lg:col-span-3 space-y-3">
-        {/* HUD bar */}
-        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-          <HudCard
-            label={t.timeLeft}
-            value={`${secondsLeft}${t.seconds}`}
-            icon={<span>⏱️</span>}
-            color="text-cyan-300"
-          />
-          <HudCard
-            label={t.score}
-            value={String(live.score)}
-            icon={<Coins className="h-3.5 w-3.5" />}
-            color="text-amber-300"
-          />
-          <HudCard
-            label={t.aiInferences}
-            value={String(live.inferenceCount)}
-            icon={<Zap className="h-3.5 w-3.5" />}
-            color="text-rose-300"
-          />
-          <HudCard
-            label={t.difficulty}
-            value={`${cfg.emoji} ${diffLabel}`}
-            icon={<span>{cfg.emoji}</span>}
-            color="text-purple-300"
-          />
-        </div>
-
-        {/* Timer progress */}
-        <div className="flex items-center gap-2">
-          <Progress value={progressPct} className="h-2 bg-slate-800" />
-          <span className="font-mono text-xs text-slate-400">
-            {Math.floor(progressPct)}%
-          </span>
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-7 border-slate-700 text-xs"
-            onClick={() => setPaused(!paused)}
-          >
-            {paused ? `▶ ${t.resume}` : `⏸ ${t.pause}`}
-          </Button>
-        </div>
-
-        {/* Game canvas */}
-        <GameCanvas
-          difficulty={difficulty}
-          paused={paused}
-          onGameEnd={onEnd}
-          onLiveUpdate={onLiveUpdate}
-        />
-
-        {/* Status pills */}
-        <div className="flex flex-wrap gap-2">
-          {live.speedBoost && (
-            <Badge className="gap-1 border-purple-400/40 bg-purple-500/15 text-purple-300">
-              <Zap className="h-3 w-3" /> {t.speedBoost}
-            </Badge>
-          )}
-          {live.inHole && (
-            <Badge className="gap-1 border-emerald-400/40 bg-emerald-500/15 text-emerald-300">
-              <CheckCircle2 className="h-3 w-3" /> {t.safeInHole}
-            </Badge>
-          )}
-          <Badge className="gap-1 border-rose-400/40 bg-rose-500/15 text-rose-300">
-            <Cat className="h-3 w-3" /> {t.aiStrategy}:{" "}
-            <span className="font-mono">{live.catStrategy}</span>
-          </Badge>
-          <Badge className="gap-1 border-cyan-400/40 bg-cyan-500/15 text-cyan-300">
-            {t.conf}:{" "}
-            <span className="font-mono">
-              {(live.catConfidence * 100).toFixed(0)}%
-            </span>
-          </Badge>
-        </div>
-
-        <p className="text-center text-[11px] text-slate-500">{t.controlsHint}</p>
+    <div className="space-y-3">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <HudCard label={t.timeLeft} value={`${secondsLeft}${t.seconds}`} icon="⏱️" color="text-cyan-300" />
+        <HudCard label={t.score} value={String(live.score)} icon={<Coins className="h-3.5 w-3.5" />} color="text-amber-300" />
+        <HudCard label={t.aiInferences} value={String(live.inferenceCount)} icon={<Zap className="h-3.5 w-3.5" />} color="text-rose-300" />
+        <HudCard label={t.difficulty} value={`${cfg.emoji} ${diffLabel}`} icon={cfg.emoji} color="text-purple-300" />
       </div>
-
-      {/* Right rail: live inference feed */}
-      <div>
-        <Card className="border-rose-500/20 bg-slate-900/60 backdrop-blur">
-          <CardHeader className="pb-3">
-            <CardTitle className="flex items-center gap-2 font-mono text-sm">
-              <span className="relative flex h-2 w-2">
-                <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75" />
-                <span className="relative inline-flex h-2 w-2 rounded-full bg-rose-500" />
-              </span>
-              {t.liveFeed}
-            </CardTitle>
-            <CardDescription className="text-[11px]">
-              {t.liveFeedDesc}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3 text-xs">
-            <div>
-              <p className="text-slate-400">{t.latestStrategy}</p>
-              <p className="font-mono text-rose-300">{live.catStrategy}</p>
-            </div>
-            <div>
-              <p className="text-slate-400">{t.confidence}</p>
-              <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
-                <div
-                  className="h-full bg-gradient-to-r from-rose-500 to-amber-400 transition-all"
-                  style={{ width: `${live.catConfidence * 100}%` }}
-                />
-              </div>
-            </div>
-            <div>
-              <p className="text-slate-400">{t.inferencesSoFar}</p>
-              <p className="font-mono text-2xl text-rose-300">
-                {live.inferenceCount}
-              </p>
-            </div>
-            <Separator className="bg-slate-800" />
-            <div className="rounded-md bg-slate-900/70 p-2 text-[10px] text-slate-500">
-              <p className="font-mono text-cyan-300">
-                {"// "}
-                {t.anchorTitle}
-              </p>
-              <p>chain_id: 0x7bb (1979)</p>
-              <p>contract: InferenceRegistry</p>
-              <p>addr: 0x7ce1...7560B</p>
-              <p>model: z-ai-llm (verifiable)</p>
-            </div>
-          </CardContent>
-        </Card>
+      <div className="flex items-center gap-2">
+        <Progress value={progressPct} className="h-2 bg-slate-800" />
+        <span className="font-mono text-xs text-slate-400">{Math.floor(progressPct)}%</span>
+        <Button size="sm" variant="outline" className="h-7 border-slate-700 text-xs" onClick={() => setPaused(!paused)}>
+          {paused ? `▶ ${t.resume}` : `⏸ ${t.pause}`}
+        </Button>
       </div>
+      <GameCanvas difficulty={difficulty} paused={paused} onGameEnd={onEnd} onLiveUpdate={onLiveUpdate} />
+      <div className="flex flex-wrap gap-2">
+        {live.speedBoost && (
+          <Badge className="gap-1 border-purple-400/40 bg-purple-500/15 text-purple-300">
+            <Zap className="h-3 w-3" /> {t.speedBoost}
+          </Badge>
+        )}
+        {live.inHole && (
+          <Badge className="gap-1 border-emerald-400/40 bg-emerald-500/15 text-emerald-300">
+            <CheckCircle2 className="h-3 w-3" /> {t.safeInHole}
+          </Badge>
+        )}
+        <Badge className="gap-1 border-rose-400/40 bg-rose-500/15 text-rose-300">
+          <Cat className="h-3 w-3" /> {t.aiStrategy}: <span className="font-mono">{live.catStrategy}</span>
+        </Badge>
+      </div>
+      <p className="text-center text-[11px] text-slate-500">{t.controlsHint}</p>
     </div>
   );
 }
 
-function HudCard({
-  label,
-  value,
-  icon,
-  color,
-}: {
-  label: string;
-  value: string;
-  icon: React.ReactNode;
-  color: string;
-}) {
+function HudCard({ label, value, icon, color }: any) {
   return (
-    <div className="rounded-lg border border-slate-800 bg-slate-900/50 px-3 py-2 backdrop-blur">
+    <div className="rounded-xl border border-white/5 bg-slate-950/60 px-3 py-2 backdrop-blur-xl">
       <div className="flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-slate-500">
-        {icon}
+        {typeof icon === "string" ? <span>{icon}</span> : icon}
         {label}
       </div>
       <div className={`mt-0.5 font-mono text-lg font-bold ${color}`}>{value}</div>
@@ -1130,8 +911,7 @@ function HudCard({
   );
 }
 
-/* ---------------- Ended Screen ---------------- */
-function EndedScreen({
+function SoloEnded({
   result,
   difficulty,
   wagerAmount,
@@ -1142,102 +922,52 @@ function EndedScreen({
   onPlayAgain,
   t,
   tf,
-}: {
-  result: GameResult;
-  difficulty: Difficulty;
-  wagerAmount: number;
-  txHash: string | null;
-  payout: number;
-  submitting: boolean;
-  onchainVerified: boolean;
-  onPlayAgain: () => void;
-  t: Dict;
-  tf: TfFn;
-}) {
+}: any) {
   const won = !result.caught;
-  const cfg = DIFFICULTY_CONFIG[difficulty];
   const diffLabel =
-    difficulty === "kitten"
-      ? t.kitten
-      : difficulty === "hunter"
-      ? t.hunter
-      : t.strategist;
+    difficulty === "kitten" ? t.kitten : difficulty === "hunter" ? t.hunter : t.strategist;
   return (
     <div className="mx-auto max-w-2xl">
-      <Card
-        className={`overflow-hidden border-2 backdrop-blur ${
+      <div
+        className={`overflow-hidden rounded-3xl border-2 backdrop-blur-xl ${
           won
-            ? "border-emerald-500/40 bg-gradient-to-br from-emerald-950/40 to-slate-900/80"
-            : "border-rose-500/40 bg-gradient-to-br from-rose-950/40 to-slate-900/80"
+            ? "border-emerald-500/40 bg-gradient-to-br from-emerald-950/40 to-slate-950/80"
+            : "border-rose-500/40 bg-gradient-to-br from-rose-950/40 to-slate-950/80"
         }`}
       >
-        <CardHeader className="text-center">
-          <div className="mx-auto mb-2 text-6xl">{won ? "🎉" : "💀"}</div>
-          <CardTitle className="font-mono text-3xl">
+        <div className="p-8 text-center">
+          <div className="text-7xl mb-3">{won ? "🎉" : "💀"}</div>
+          <h2 className="font-mono text-4xl font-bold mb-2">
             {won ? t.survivedTitle : t.caughtTitle}
-          </CardTitle>
-          <CardDescription>
+          </h2>
+          <p className="text-slate-400">
             {won
               ? tf("survivedDesc", { label: diffLabel })
-              : tf("caughtDesc", {
-                  label: diffLabel,
-                  sec: (result.survivedMs / 1000).toFixed(1),
-                })}
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {/* Stats grid */}
+              : tf("caughtDesc", { label: diffLabel, sec: (result.survivedMs / 1000).toFixed(1) })}
+          </p>
+        </div>
+        <div className="px-8 pb-8 space-y-4">
           <div className="grid grid-cols-3 gap-2">
-            <StatBox
-              label={t.statSurvived}
-              value={`${(result.survivedMs / 1000).toFixed(1)}${t.seconds}`}
-              color="text-cyan-300"
-            />
-            <StatBox
-              label={t.statCheese}
-              value={`🧀 ${result.cheeseCollected}`}
-              color="text-amber-300"
-            />
-            <StatBox
-              label={t.statInferences}
-              value={String(result.inferenceCount)}
-              color="text-rose-300"
-            />
+            <StatBox label={t.statSurvived} value={`${(result.survivedMs / 1000).toFixed(1)}${t.seconds}`} color="text-cyan-300" />
+            <StatBox label={t.statCheese} value={`🧀 ${result.cheeseCollected}`} color="text-amber-300" />
+            <StatBox label={t.statInferences} value={String(result.inferenceCount)} color="text-rose-300" />
           </div>
-
-          {/* Payout box */}
-          <div
-            className={`rounded-lg border p-4 ${
-              won
-                ? "border-emerald-500/30 bg-emerald-500/10"
-                : "border-rose-500/30 bg-rose-500/10"
-            }`}
-          >
+          <div className={`rounded-xl border p-4 ${won ? "border-emerald-500/30 bg-emerald-500/10" : "border-rose-500/30 bg-rose-500/10"}`}>
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-xs text-slate-400">{t.wager}</p>
-                <p className="font-mono text-lg text-amber-300">
-                  {wagerAmount} CHEESE
-                </p>
+                <p className="font-mono text-lg text-amber-300">{wagerAmount} CHEESE</p>
               </div>
               <div className="text-2xl">{won ? "→" : "✕"}</div>
               <div>
-                <p className="text-xs text-slate-400">
-                  {won ? t.payout : t.lost}
-                </p>
-                <p
-                  className={`font-mono text-lg font-bold ${
-                    won ? "text-emerald-300" : "text-rose-300"
-                  }`}
-                >
+                <p className="text-xs text-slate-400">{won ? t.payout : t.lost}</p>
+                <p className={`font-mono text-lg font-bold ${won ? "text-emerald-300" : "text-rose-300"}`}>
                   {won ? `+${payout - wagerAmount}` : `-${wagerAmount}`} CHEESE
                 </p>
               </div>
             </div>
           </div>
-
-          {/* On-chain proof */}
-          <div className="rounded-lg border border-slate-800 bg-slate-900/60 p-3">
+          <div className="rounded-xl border border-white/5 bg-slate-950/60 p-3">
             <p className="flex items-center gap-1.5 text-xs font-semibold text-slate-300">
               {submitting ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
@@ -1249,22 +979,24 @@ function EndedScreen({
               {t.ritualAnchor}
               {onchainVerified ? (
                 <Badge className="ml-2 gap-1 border-emerald-400/40 bg-emerald-500/15 text-[9px] text-emerald-300">
-                  <CheckCircle2 className="h-2.5 w-2.5" />
-                  Verified
+                  <CheckCircle2 className="h-2.5 w-2.5" /> Verified
                 </Badge>
               ) : (
-                <Badge className="ml-2 gap-1 border-amber-400/40 bg-amber-500/15 text-[9px] text-amber-300">
-                  Mock
-                </Badge>
+                <Badge className="ml-2 gap-1 border-amber-400/40 bg-amber-500/15 text-[9px] text-amber-300">Mock</Badge>
               )}
             </p>
             <div className="mt-2 space-y-1 font-mono text-[10px] text-slate-400">
               <p>
                 <span className="text-slate-500">{t.txHash}:</span>{" "}
                 {txHash ? (
-                  <span className="text-cyan-300">
+                  <a
+                    href={`https://explorer.ritualfoundation.org/tx/${txHash}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-cyan-300 hover:underline"
+                  >
                     {txHash.slice(0, 18)}…{txHash.slice(-8)}
-                  </span>
+                  </a>
                 ) : (
                   <span className="text-slate-600">{t.pending}</span>
                 )}
@@ -1272,56 +1004,25 @@ function EndedScreen({
               <p>
                 <span className="text-slate-500">{t.inferenceHash}:</span>{" "}
                 <span className="text-rose-300">
-                  {result.inferenceHash
-                    ? `${result.inferenceHash.slice(0, 18)}…`
-                    : "—"}
+                  {result.inferenceHash ? `${result.inferenceHash.slice(0, 18)}…` : "—"}
                 </span>
               </p>
-              <p>
-                <span className="text-slate-500">{t.difficulty}:</span>{" "}
-                <span className="text-purple-300">{difficulty}</span>
-              </p>
             </div>
-            {txHash && (
-              <a
-                href={`https://explorer.ritualfoundation.org/tx/${txHash}`}
-                target="_blank"
-                rel="noreferrer"
-                className="mt-2 inline-flex items-center gap-1 text-[11px] text-cyan-400 hover:underline"
-              >
-                {t.viewOnExplorer} <ExternalLink className="h-3 w-3" />
-              </a>
-            )}
           </div>
-
-          <Button
-            onClick={onPlayAgain}
-            className="w-full gap-2 bg-gradient-to-r from-rose-500 to-purple-600 text-base font-bold hover:from-rose-400 hover:to-purple-500"
-            size="lg"
-          >
+          <Button onClick={onPlayAgain} className="w-full gap-2 bg-gradient-to-r from-rose-500 to-purple-600 text-base font-bold">
             <Crosshair className="h-5 w-5" />
             {t.playAgain}
           </Button>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </div>
   );
 }
 
-function StatBox({
-  label,
-  value,
-  color,
-}: {
-  label: string;
-  value: string;
-  color: string;
-}) {
+function StatBox({ label, value, color }: any) {
   return (
-    <div className="rounded-md border border-slate-800 bg-slate-900/60 p-3 text-center">
-      <p className="text-[10px] uppercase tracking-wider text-slate-500">
-        {label}
-      </p>
+    <div className="rounded-lg border border-white/5 bg-slate-950/60 p-3 text-center">
+      <p className="text-[10px] uppercase tracking-wider text-slate-500">{label}</p>
       <p className={`mt-1 font-mono text-lg font-bold ${color}`}>{value}</p>
     </div>
   );
