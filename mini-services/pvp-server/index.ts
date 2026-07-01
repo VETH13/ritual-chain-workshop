@@ -26,7 +26,10 @@ type Match = {
   catches: Record<string, boolean>; // handle → caught
 };
 
+// Create a bare HTTP server — we'll add the request handler later
+// (after `players` map is defined, and we need to chain it with socket.io's handler)
 const httpServer = createServer();
+
 const io = new Server(httpServer, {
   path: "/",
   cors: { origin: "*", methods: ["GET", "POST"] },
@@ -306,6 +309,35 @@ io.on("connection", (socket: Socket) => {
   socket.on("error", (error) => {
     console.error(`Socket error (${socket.id}):`, error);
   });
+});
+
+// HTTP endpoints — wrap the existing socket.io request handler
+// so we can intercept /online-players and /health
+const originalListeners = httpServer.listeners("request").slice();
+httpServer.removeAllListeners("request");
+httpServer.on("request", (req: any, res: any) => {
+  const url = req.url ?? "";
+  if (url.startsWith("/online-players") || url === "/health") {
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    if (url.startsWith("/online-players")) {
+      const online = Array.from(players.values())
+        .filter((p) => p.status !== "in-match")
+        .map((p) => ({
+          handle: p.handle,
+          avatarUrl: p.avatarUrl,
+          status: p.status,
+        }));
+      res.end(JSON.stringify({ online }));
+    } else {
+      res.end(JSON.stringify({ ok: true, online: players.size }));
+    }
+    return;
+  }
+  // For all other paths, delegate to the original socket.io handler
+  for (const listener of originalListeners) {
+    listener.call(httpServer, req, res);
+  }
 });
 
 const PORT = 3003;

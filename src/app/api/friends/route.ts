@@ -53,16 +53,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Cannot add yourself" }, { status: 400 });
     }
 
-    // Verify both players exist
-    const [fromPlayer, toPlayer] = await Promise.all([
-      db.player.findUnique({ where: { xHandle: from } }),
-      db.player.findUnique({ where: { xHandle: to } }),
-    ]);
+    // Verify from player exists
+    const fromPlayer = await db.player.findUnique({ where: { xHandle: from } });
     if (!fromPlayer) {
       return NextResponse.json({ error: "Your profile not found — login first" }, { status: 404 });
     }
+
+    // If toPlayer doesn't exist, auto-create them with avatar from unavatar.io
+    // This lets you add friends who haven't logged in yet.
+    let toPlayer = await db.player.findUnique({ where: { xHandle: to } });
     if (!toPlayer) {
-      return NextResponse.json({ error: `Player @${to} not found` }, { status: 404 });
+      const avatarUrl = `https://unavatar.io/twitter/${to}`;
+      toPlayer = await db.player.create({
+        data: { xHandle: to, xAvatarUrl: avatarUrl },
+      });
     }
 
     if (action === "add") {
