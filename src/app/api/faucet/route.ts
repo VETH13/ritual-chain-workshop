@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { db, ensureSchema } from "@/lib/db";
 
 // POST /api/faucet — mint 1000 mock CHEESE tokens to player address
 // (In production, this would call the Ritual testnet faucet contract)
 export async function POST(req: NextRequest) {
+  await ensureSchema();
   try {
     const { address } = await req.json();
     if (!address) {

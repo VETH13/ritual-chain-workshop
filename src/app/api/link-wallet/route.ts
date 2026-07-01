@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { db, ensureSchema } from "@/lib/db";
 
 // POST /api/link-wallet
 // Body: { handle, walletAddress }
 // Links a wallet address to an X player profile so their on-chain records
 // show up in the leaderboard.
 export async function POST(req: NextRequest) {
+  await ensureSchema();
   try {
     const { handle, walletAddress } = await req.json();
     if (!handle || !walletAddress) {

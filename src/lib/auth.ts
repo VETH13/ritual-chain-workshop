@@ -14,7 +14,7 @@
 //
 // This implementation works without OAuth for demo purposes.
 
-import { db } from "@/lib/db";
+import { db, ensureSchema } from "@/lib/db";
 
 export type XProfile = {
   handle: string;
@@ -83,6 +83,7 @@ export async function fetchXProfile(handle: string): Promise<XProfile> {
 
 // Upsert player in DB
 export async function upsertPlayer(profile: XProfile, walletAddress?: string) {
+  await ensureSchema();
   const player = await db.player.upsert({
     where: { xHandle: profile.handle },
     update: {

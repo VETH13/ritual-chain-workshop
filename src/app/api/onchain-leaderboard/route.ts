@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { db, ensureSchema } from "@/lib/db";
 import { RITUAL_TESTNET_RPC } from "@/lib/onchain";
 import { INFERENCE_REGISTRY } from "@/lib/ritual";
 
@@ -17,6 +17,7 @@ import { INFERENCE_REGISTRY } from "@/lib/ritual";
 // a getter or use event indexing.
 
 export async function GET() {
+  await ensureSchema();
   try {
     // 1. Get total on-chain records
     const totalResp = await fetch(RITUAL_TESTNET_RPC, {

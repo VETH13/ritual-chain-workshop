@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { db, ensureSchema } from "@/lib/db";
 import { mockTxHash } from "@/lib/ritual";
 import { verifyRitualTx, isRealTxHash } from "@/lib/onchain";
 
@@ -15,6 +15,7 @@ import { verifyRitualTx, isRealTxHash } from "@/lib/onchain";
 // Otherwise (dev/demo mode), we fall back to mockTxHash().
 
 export async function POST(req: NextRequest) {
+  await ensureSchema();
   try {
     const body = await req.json();
     const {
@@ -140,6 +141,7 @@ export async function POST(req: NextRequest) {
 
 // GET /api/game-record?address=0x... — fetch recent games for a player
 export async function GET(req: NextRequest) {
+  await ensureSchema();
   const addr = req.nextUrl.searchParams.get("address")?.toLowerCase();
   if (!addr) {
     return NextResponse.json({ records: [] });

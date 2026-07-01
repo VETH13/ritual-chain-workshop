@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/lib/db";
+import { db, ensureSchema } from "@/lib/db";
 
 // GET /api/friends?handle=xxx — list friends for a player
 export async function GET(req: NextRequest) {
+  await ensureSchema();
   const handle = req.nextUrl.searchParams.get("handle")?.toLowerCase();
   if (!handle) return NextResponse.json({ friends: [] });
 
@@ -40,6 +41,7 @@ export async function GET(req: NextRequest) {
 // POST /api/friends — add a friend (or accept pending request)
 // Body: { fromHandle, toHandle, action: "add" | "accept" }
 export async function POST(req: NextRequest) {
+  await ensureSchema();
   try {
     const { fromHandle, toHandle, action } = await req.json();
     if (!fromHandle || !toHandle || !action) {
