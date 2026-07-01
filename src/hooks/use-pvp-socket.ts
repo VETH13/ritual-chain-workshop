@@ -62,23 +62,20 @@ export function usePvPSocket(handle: string | null, avatarUrl: string | null) {
 
     // Determine the socket URL
     let socketUrl: string;
-    let socketPath: string;
     if (
       typeof window !== "undefined" &&
       window.location.hostname === "localhost" &&
       window.location.port === "3000"
     ) {
-      // Dev mode — connect directly to the PvP server
+      // Dev mode — connect directly to the local PvP server
       socketUrl = "http://localhost:3003";
-      socketPath = "/";
     } else {
-      // Prod — use relative URL + XTransformPort (Caddy handles routing)
-      socketUrl = window?.location?.origin ?? "/";
-      socketPath = "/";
+      // Prod — connect to the Railway-deployed PvP server
+      socketUrl = "https://pvp-server-production-5bc3.up.railway.app";
     }
 
-    const socket = io(socketUrl + "/?XTransformPort=3003", {
-      path: socketPath,
+    const socket = io(socketUrl, {
+      path: "/",
       transports: ["websocket"],
       reconnection: true,
       reconnectionAttempts: 5,
