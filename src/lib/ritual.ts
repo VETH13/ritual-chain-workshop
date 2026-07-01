@@ -1,20 +1,21 @@
 // Ritual Testnet Configuration
 // Ritual Chain is an AI-focused EVM-compatible L2
-// Docs: https://docs.ritual.net
+// Docs: https://docs.ritualfoundation.org
+// Chain ID: 1979 | RPC: https://rpc.ritualfoundation.org
 
 export const RITUAL_TESTNET = {
-  chainId: "0x27e3", // 10211 in hex
+  chainId: "0x7bb", // 1979 in hex
   chainName: "Ritual Testnet",
   nativeCurrency: {
     name: "Ritual Token",
     symbol: "RITUAL",
     decimals: 18,
   },
-  rpcUrls: ["https://boost-testnet.d3rpc.org"],
-  blockExplorerUrls: ["https://explorer.testnet.ritual.net"],
+  rpcUrls: ["https://rpc.ritualfoundation.org"],
+  blockExplorerUrls: ["https://explorer.ritualfoundation.org"],
 } as const;
 
-export const RITUAL_CHAIN_ID_DECIMAL = 10211;
+export const RITUAL_CHAIN_ID_DECIMAL = 1979;
 
 // Mock $CHEESE ERC-20 contract on Ritual testnet
 // (In production this would be a real deployed contract address)
@@ -26,11 +27,14 @@ export const CHEESE_TOKEN = {
   faucetAmount: "1000",
 } as const;
 
-// Mock "VerifiableInferenceRegistry" contract — anchors AI inference proofs on-chain
-// In real Ritual, this would call infernet-sdk's Registry contract
+// REAL deployed InferenceRegistry contract on Ritual testnet (chain 1979)
+// Deployed via forge script — see /contracts/script/DeployInferenceRegistry.s.sol
+// Function selector for recordGame(bytes32,uint8,bool,uint16) = 0xf7be6d12
 export const INFERENCE_REGISTRY = {
-  address: "0x1NFEE00000000000000000000000000000000000",
-  // We simulate this by hashing the inference payload + game state
+  address: "0x7ce1d7BA8Cf307cC3c7e571577b5d94EFBB7560B",
+  deployer: "0x0ABb3098Ebe1E5444fB7b185C0Ee790bD9A2b29A",
+  deployedAtBlock: 0,
+  functionSelector: "0xf7be6d12",
 } as const;
 
 export type WalletState = {

@@ -52,3 +52,28 @@ prompt
 server.log
 # Skills directory
 /skills/
+
+# Foundry / contracts
+contracts/broadcast/
+contracts/cache/
+contracts/out/
+contracts/lib/
+
+# Database
+db/*.db
+db/*.db-journal
+
+# Uploads (user-provided assets, kept locally only)
+upload/
+
+# Sprite exploration output (regenerable)
+public/_explorer/
+
+# Vercel
+.vercel
+
+# Deployer private keys — NEVER commit these
+*.key
+*.pem
+deployer-key*
+.env.deployer

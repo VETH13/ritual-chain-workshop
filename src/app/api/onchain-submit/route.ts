@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   encodeRecordGameCall,
-  toBytes32,
   isRealTxHash,
   verifyRitualTx,
+  RITUAL_TESTNET_RPC,
 } from "@/lib/onchain";
+import { INFERENCE_REGISTRY } from "@/lib/ritual";
 
 // POST /api/onchain-submit
 // Body: { inferenceHash, difficulty, survived, cheeseCollected, playerAddress, txHash? }
@@ -13,10 +14,6 @@ import {
 // 1. PRE-SUBMIT (no txHash): returns the encoded calldata + contract address
 //    so the client can call eth_sendTransaction via its wallet.
 // 2. VERIFY (with txHash): verifies the tx on Ritual testnet RPC.
-//
-// In dev mode, the contract isn't deployed so we just return a mock txHash.
-
-const REGISTRY_ADDRESS = "0x1NFEE00000000000000000000000000000000000";
 
 const DIFF_MAP: Record<string, number> = {
   kitten: 0,
@@ -51,6 +48,7 @@ export async function POST(req: NextRequest) {
         verified: receipt.confirmed,
         status: receipt.status,
         blockNumber: receipt.blockNumber,
+        explorer: `https://explorer.ritualfoundation.org/tx/${txHash}`,
       });
     }
 
@@ -63,24 +61,19 @@ export async function POST(req: NextRequest) {
       Number(cheeseCollected) || 0
     );
 
-    // Generate a deterministic mock txHash for dev mode.
-    // We prefix with many zeros so isRealTxHash() recognizes it as a mock
-    // (avoiding unnecessary RPC verification calls against an undeployed contract).
-    const randomHex = Array.from(crypto.getRandomValues(new Uint8Array(8)))
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-    const mockHash = "0x" + "0".repeat(48) + randomHex.padStart(16, "0");
-
+    // Contract is now deployed on Ritual testnet (chain 1979).
+    // The client uses `to` + `data` + `from` to call eth_sendTransaction
+    // via window.ethereum. The wallet will return a real txHash.
     return NextResponse.json({
-      // In production with a real deployed contract, the client would use
-      // `to` + `data` to call eth_sendTransaction via window.ethereum.
-      // Here we return the mock txHash so the flow keeps working in dev.
-      to: REGISTRY_ADDRESS,
+      to: INFERENCE_REGISTRY.address,
       data,
       from: playerAddress,
-      txHash: mockHash, // mock for dev mode
-      mock: true,
-      note: "Contract not deployed on Ritual testnet yet — returning mock txHash. Deploy InferenceRegistry and replace REGISTRY_ADDRESS to enable real anchoring.",
+      rpcUrl: RITUAL_TESTNET_RPC,
+      chainId: "0x7bb", // 1979
+      explorer: "https://explorer.ritualfoundation.org",
+      // No mock txHash — client must submit and get a real one back.
+      // The presence of `to` + `data` tells the client to fire a real tx.
+      needsWalletSubmit: true,
     });
   } catch (e: any) {
     return NextResponse.json(

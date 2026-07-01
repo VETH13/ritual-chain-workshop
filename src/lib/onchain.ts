@@ -10,8 +10,8 @@
 //
 // In dev/demo mode (no deployed contract), we fall back to mockTxHash().
 
-export const RITUAL_TESTNET_RPC = "https://boost-testnet.d3rpc.org";
-export const RITUAL_TESTNET_EXPLORER = "https://explorer.testnet.ritual.net";
+export const RITUAL_TESTNET_RPC = "https://rpc.ritualfoundation.org";
+export const RITUAL_TESTNET_EXPLORER = "https://explorer.ritualfoundation.org";
 
 // InferenceRegistry contract ABI (subset)
 // In a real deployment, this would be the actual compiled contract.
@@ -55,8 +55,8 @@ export function encodeRecordGameCall(
   cheeseCollected: number
 ): string {
   // Function selector: first 4 bytes of keccak256("recordGame(bytes32,uint8,bool,uint16)")
-  // Pre-computed: 0xa1b2c3d4 (placeholder — replace with actual selector after compiling contract)
-  const selector = "0xa1b2c3d4";
+  // Computed via `cast sig` — verified against compiled contract ABI.
+  const selector = "0xf7be6d12";
   const hashArg = toBytes32(inferenceHash).slice(2);
   const diffArg = difficulty.toString(16).padStart(64, "0");
   const survArg = (survived ? 1 : 0).toString(16).padStart(64, "0");

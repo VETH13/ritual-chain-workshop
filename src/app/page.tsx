@@ -235,10 +235,9 @@ export default function Home() {
       setScreen("ended");
       setSubmitting(true);
       try {
-        // Attempt to anchor the result on Ritual testnet via wallet.
-        // This will prompt the user to sign a transaction. If they decline
-        // or the contract isn't deployed, we fall back to mock mode.
+        // Step 1: Get calldata from the server for the InferenceRegistry.recordGame() call
         let submittedTxHash: string | null = null;
+        let onchainAnchor = false;
         try {
           const submitResp = await fetch("/api/onchain-submit", {
             method: "POST",
@@ -252,13 +251,56 @@ export default function Home() {
             }),
           });
           const submitJson = await submitResp.json();
-          if (submitJson.txHash) {
+
+          // Step 2: If server returned calldata, fire a real wallet tx
+          if (
+            submitJson.needsWalletSubmit &&
+            submitJson.to &&
+            submitJson.data &&
+            typeof window !== "undefined" &&
+            window.ethereum
+          ) {
+            try {
+              // Ensure we're on Ritual testnet (chain 1979)
+              const chainId: string = await window.ethereum.request({
+                method: "eth_chainId",
+              });
+              if (chainId?.toLowerCase() !== "0x7bb") {
+                await window.ethereum.request({
+                  method: "wallet_switchEthereumChain",
+                  params: [{ chainId: "0x7bb" }],
+                });
+              }
+              // Prompt user to sign the recordGame() tx
+              const txHashFromWallet: string = await window.ethereum.request({
+                method: "eth_sendTransaction",
+                params: [
+                  {
+                    from: submitJson.from,
+                    to: submitJson.to,
+                    data: submitJson.data,
+                  },
+                ],
+              });
+              submittedTxHash = txHashFromWallet;
+              onchainAnchor = true;
+              toast.info("🔗 Transaction submitted, waiting for confirmation...");
+              // Wait a moment for the tx to be mined (~350ms block time on Ritual)
+              await new Promise((res) => setTimeout(res, 2000));
+            } catch (walletErr: any) {
+              // User rejected or wallet error — fall through to mock
+              console.warn("Wallet submit failed:", walletErr?.message);
+              toast.warning("Onchain anchor skipped — saving as mock record.");
+            }
+          } else if (submitJson.txHash) {
+            // Server returned a pre-existing txHash (mock mode)
             submittedTxHash = submitJson.txHash;
           }
         } catch {
           // Onchain submit failed — fall through to mock
         }
 
+        // Step 3: Save the game record (with txHash if we got one)
         const resp = await fetch("/api/game-record", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -277,7 +319,7 @@ export default function Home() {
         if (j.ok) {
           setTxHash(j.ritualTxHash);
           setPayout(j.payoutAmount);
-          setOnchainVerified(j.onchainVerified ?? false);
+          setOnchainVerified(j.onchainVerified ?? onchainAnchor);
           if (j.won) {
             setStreak((s) => {
               const ns = s + 1;
@@ -292,7 +334,7 @@ export default function Home() {
             toast.error(tf("caughtYou", { n: wagerAmount }));
           }
           if (j.onchainVerified) {
-            toast.success("🔗 Anchored on Ritual testnet!");
+            toast.success("🔗 Verified on Ritual testnet!");
           }
           if (wallet.address) refreshHistory(wallet.address);
           refreshLeaderboard();
@@ -546,7 +588,7 @@ export default function Home() {
             </a>
             <span>·</span>
             <a
-              href="https://explorer.testnet.ritual.net"
+              href="https://explorer.ritualfoundation.org"
               target="_blank"
               rel="noreferrer"
               className="hover:text-slate-300"
@@ -1054,8 +1096,9 @@ function PlayingScreen({
                 {"// "}
                 {t.anchorTitle}
               </p>
-              <p>chain_id: 0x27e3 (10211)</p>
+              <p>chain_id: 0x7bb (1979)</p>
               <p>contract: InferenceRegistry</p>
+              <p>addr: 0x7ce1...7560B</p>
               <p>model: z-ai-llm (verifiable)</p>
             </div>
           </CardContent>
@@ -1241,7 +1284,7 @@ function EndedScreen({
             </div>
             {txHash && (
               <a
-                href={`https://explorer.testnet.ritual.net/tx/${txHash}`}
+                href={`https://explorer.ritualfoundation.org/tx/${txHash}`}
                 target="_blank"
                 rel="noreferrer"
                 className="mt-2 inline-flex items-center gap-1 text-[11px] text-cyan-400 hover:underline"
