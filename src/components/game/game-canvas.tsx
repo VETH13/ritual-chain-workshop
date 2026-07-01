@@ -17,6 +17,12 @@ import {
 } from "@/lib/game";
 import { inferenceHash } from "@/lib/ritual";
 
+// Pre-load sprite images
+const mouseImg = typeof Image !== "undefined" ? new Image() : null;
+const catImg = typeof Image !== "undefined" ? new Image() : null;
+if (mouseImg) mouseImg.src = "/mouse-sprite.png";
+if (catImg) catImg.src = "/cat-sprite.png";
+
 type Props = {
   difficulty: Difficulty;
   paused: boolean;
@@ -72,7 +78,7 @@ export default function GameCanvas({
       type: "mouse",
       pos: { x: 100, y: ARENA_HEIGHT / 2 },
       vel: { x: 0, y: 0 },
-      radius: 12,
+      radius: 16,
       color: "#3bdcff",
     };
     const cat: Entity = {
@@ -80,7 +86,7 @@ export default function GameCanvas({
       type: "cat",
       pos: { x: ARENA_WIDTH - 100, y: ARENA_HEIGHT / 2 },
       vel: { x: 0, y: 0 },
-      radius: 18,
+      radius: 24,
       color: "#ff4d6d",
       aiState: {
         lastInference: 0,
@@ -601,10 +607,12 @@ export default function GameCanvas({
       ctx.globalAlpha = 1;
     }
 
-    // Mouse (player)
+    // Mouse (player) — uses sprite image with glow & status tint
     const m = s.mouse;
     const safe = t < s.inHoleUntil;
     const boosted = t < s.speedBoostUntil;
+    const mScale = 0.18; // sprite is ~360px, target ~32px radius
+    const mSize = m.radius * 2.6;
     // Trail
     ctx.globalAlpha = 0.35;
     ctx.fillStyle = m.color;
@@ -619,35 +627,59 @@ export default function GameCanvas({
       1,
       m.pos.x,
       m.pos.y,
-      m.radius * 2.5
+      m.radius * 2.8
     );
-    mGrad.addColorStop(0, safe ? "#7cffa0" : boosted ? "#c2a4ff" : "#7cd2ff");
+    mGrad.addColorStop(0, safe ? "rgba(124,255,160,0.65)" : boosted ? "rgba(194,164,255,0.65)" : "rgba(124,210,255,0.65)");
     mGrad.addColorStop(1, "rgba(59,220,255,0)");
     ctx.fillStyle = mGrad;
     ctx.beginPath();
-    ctx.arc(m.pos.x, m.pos.y, m.radius * 2.5, 0, Math.PI * 2);
+    ctx.arc(m.pos.x, m.pos.y, m.radius * 2.8, 0, Math.PI * 2);
     ctx.fill();
-    // Body
-    ctx.fillStyle = safe ? "#7cffa0" : boosted ? "#c2a4ff" : "#3bdcff";
-    ctx.beginPath();
-    ctx.arc(m.pos.x, m.pos.y, m.radius, 0, Math.PI * 2);
-    ctx.fill();
-    // Eyes (small dark dots facing velocity)
-    const dir = normalize(m.vel.x || m.vel.x === 0 ? m.vel : { x: 1, y: 0 });
-    ctx.fillStyle = "#06121f";
-    ctx.beginPath();
-    ctx.arc(m.pos.x + dir.x * 4 - 3, m.pos.y + dir.y * 4 - 2, 2, 0, Math.PI * 2);
-    ctx.arc(m.pos.x + dir.x * 4 + 3, m.pos.y + dir.y * 4 - 2, 2, 0, Math.PI * 2);
-    ctx.fill();
-    // Ears
-    ctx.fillStyle = safe ? "#7cffa0" : boosted ? "#c2a4ff" : "#3bdcff";
-    ctx.beginPath();
-    ctx.arc(m.pos.x - 5, m.pos.y - 9, 3, 0, Math.PI * 2);
-    ctx.arc(m.pos.x + 5, m.pos.y - 9, 3, 0, Math.PI * 2);
-    ctx.fill();
+    // Direction angle for sprite rotation
+    const mvLen = Math.hypot(m.vel.x, m.vel.y);
+    let mAngle = 0;
+    if (mvLen > 0.1) {
+      mAngle = Math.atan2(m.vel.y, m.vel.x);
+    }
+    // Draw sprite, flipped horizontally based on direction
+    ctx.save();
+    ctx.translate(m.pos.x, m.pos.y);
+    if (m.vel.x < 0) {
+      // Facing left — flip
+      ctx.scale(-1, 1);
+      ctx.rotate(-mAngle);
+    } else {
+      ctx.rotate(mAngle);
+    }
+    // Slight bob
+    const bob = Math.sin(t / 120) * 1;
+    ctx.translate(0, bob);
+    if (mouseImg && mouseImg.complete && mouseImg.naturalWidth > 0) {
+      // Tint by overlaying color if safe/boosted
+      ctx.drawImage(mouseImg, -mSize / 2, -mSize / 2, mSize, mSize);
+      if (safe) {
+        ctx.globalCompositeOperation = "source-atop";
+        ctx.fillStyle = "rgba(124,255,160,0.35)";
+        ctx.fillRect(-mSize / 2, -mSize / 2, mSize, mSize);
+        ctx.globalCompositeOperation = "source-over";
+      } else if (boosted) {
+        ctx.globalCompositeOperation = "source-atop";
+        ctx.fillStyle = "rgba(194,164,255,0.45)";
+        ctx.fillRect(-mSize / 2, -mSize / 2, mSize, mSize);
+        ctx.globalCompositeOperation = "source-over";
+      }
+    } else {
+      // Fallback: simple circle
+      ctx.fillStyle = safe ? "#7cffa0" : boosted ? "#c2a4ff" : "#3bdcff";
+      ctx.beginPath();
+      ctx.arc(0, 0, m.radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
 
-    // Cat (AI)
+    // Cat (AI) — uses sprite image with red glow
     const c = s.cat;
+    const cSize = c.radius * 2.8;
     // Target line
     if (c.aiState?.target) {
       ctx.strokeStyle = `rgba(255,77,109,${0.15 + 0.1 * Math.sin(t / 200)})`;
@@ -670,51 +702,62 @@ export default function GameCanvas({
       1,
       c.pos.x,
       c.pos.y,
-      c.radius * 3
+      c.radius * 3.2
     );
-    cGrad.addColorStop(0, "rgba(255,77,109,0.5)");
+    cGrad.addColorStop(0, "rgba(255,77,109,0.55)");
     cGrad.addColorStop(1, "rgba(255,77,109,0)");
     ctx.fillStyle = cGrad;
     ctx.beginPath();
-    ctx.arc(c.pos.x, c.pos.y, c.radius * 3, 0, Math.PI * 2);
+    ctx.arc(c.pos.x, c.pos.y, c.radius * 3.2, 0, Math.PI * 2);
     ctx.fill();
-    // Body
-    ctx.fillStyle = c.color;
-    ctx.beginPath();
-    ctx.arc(c.pos.x, c.pos.y, c.radius, 0, Math.PI * 2);
-    ctx.fill();
-    // AI Eye — pulsing
+    // Sprite
+    const cvLen = Math.hypot(c.vel.x, c.vel.y);
+    let cAngle = 0;
+    if (cvLen > 0.1) {
+      cAngle = Math.atan2(c.vel.y, c.vel.x);
+    }
+    ctx.save();
+    ctx.translate(c.pos.x, c.pos.y);
+    // Cat sprite faces right naturally — flip if moving left
+    if (c.vel.x < 0) {
+      ctx.scale(-1, 1);
+      ctx.rotate(-cAngle);
+    } else {
+      ctx.rotate(cAngle);
+    }
+    // Pulsing scale when confidence is high
+    const pulse = 1 + (c.aiState?.confidence ?? 0) * 0.05 * Math.sin(t / 150);
+    ctx.scale(pulse, pulse);
+    if (catImg && catImg.complete && catImg.naturalWidth > 0) {
+      ctx.drawImage(catImg, -cSize / 2, -cSize / 2, cSize, cSize);
+      // Red tint overlay (menacing)
+      ctx.globalCompositeOperation = "source-atop";
+      ctx.fillStyle = `rgba(255,77,109,${0.15 + (c.aiState?.confidence ?? 0.5) * 0.25})`;
+      ctx.fillRect(-cSize / 2, -cSize / 2, cSize, cSize);
+      ctx.globalCompositeOperation = "source-over";
+    } else {
+      // Fallback: red circle
+      ctx.fillStyle = c.color;
+      ctx.beginPath();
+      ctx.arc(0, 0, c.radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+    // AI Eye — pulsing marker above cat
     const eyeR = 4 + Math.sin(t / 200) * 1.2;
+    ctx.fillStyle = "#ff4d6d";
+    ctx.beginPath();
+    ctx.arc(c.pos.x - 8, c.pos.y - c.radius - 14, eyeR * 0.8, 0, Math.PI * 2);
+    ctx.fill();
     ctx.fillStyle = "#fff";
     ctx.beginPath();
-    ctx.arc(c.pos.x, c.pos.y - 2, eyeR, 0, Math.PI * 2);
+    ctx.arc(c.pos.x - 8, c.pos.y - c.radius - 14, 1.5, 0, Math.PI * 2);
     ctx.fill();
-    ctx.fillStyle = "#7a0010";
+    // Confidence ring around the marker
+    ctx.strokeStyle = `rgba(255,77,109,${c.aiState?.confidence ?? 0.5})`;
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
-    ctx.arc(c.pos.x, c.pos.y - 2, 2, 0, Math.PI * 2);
-    ctx.fill();
-    // Ears (pointed)
-    ctx.fillStyle = c.color;
-    ctx.beginPath();
-    ctx.moveTo(c.pos.x - 12, c.pos.y - 12);
-    ctx.lineTo(c.pos.x - 6, c.pos.y - 22);
-    ctx.lineTo(c.pos.x - 2, c.pos.y - 14);
-    ctx.closePath();
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(c.pos.x + 12, c.pos.y - 12);
-    ctx.lineTo(c.pos.x + 6, c.pos.y - 22);
-    ctx.lineTo(c.pos.x + 2, c.pos.y - 14);
-    ctx.closePath();
-    ctx.fill();
-    // Whiskers
-    ctx.strokeStyle = "rgba(255,255,255,0.6)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(c.pos.x - 10, c.pos.y + 4);
-    ctx.lineTo(c.pos.x - 20, c.pos.y + 2);
-    ctx.moveTo(c.pos.x + 10, c.pos.y + 4);
-    ctx.lineTo(c.pos.x + 20, c.pos.y + 2);
+    ctx.arc(c.pos.x - 8, c.pos.y - c.radius - 14, eyeR * 1.6, 0, Math.PI * 2 * (c.aiState?.confidence ?? 0.5));
     ctx.stroke();
   };
 

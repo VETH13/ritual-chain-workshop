@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useWallet, shortAddr } from "@/hooks/use-wallet";
+import { useLang } from "@/hooks/use-lang";
 import {
   RITUAL_TESTNET,
   CHEESE_TOKEN,
@@ -40,9 +41,13 @@ import {
   CheckCircle2,
   AlertCircle,
   Flame,
+  Languages,
 } from "lucide-react";
 import { toast } from "sonner";
 import GameCanvas from "@/components/game/game-canvas";
+import type { Dict } from "@/lib/i18n";
+
+type TfFn = (key: keyof Dict, vars?: Record<string, string | number>) => string;
 
 type Screen = "start" | "playing" | "ended";
 type LiveSnap = {
@@ -90,6 +95,7 @@ const STARTING_CHEESE = 1000;
 
 export default function Home() {
   const { wallet, connect, connecting, error, ensureRitual } = useWallet();
+  const { lang, toggle, t, tf } = useLang();
   const [screen, setScreen] = useState<Screen>("start");
   const [difficulty, setDifficulty] = useState<Difficulty>("hunter");
   const [wagerAmount, setWagerAmount] = useState<number>(50);
@@ -181,28 +187,28 @@ export default function Home() {
         setBalance(STARTING_CHEESE);
         toast.success(j.message);
       } else {
-        toast.error(j.error || "Faucet claim failed");
+        toast.error(j.error || t.faucetClaimFailed);
       }
     } catch (e: any) {
-      toast.error(e?.message ?? "Faucet failed");
+      toast.error(e?.message ?? t.faucetFailed);
     }
-  }, [wallet.address]);
+  }, [wallet.address, t]);
 
   // Start a new game
   const startGame = useCallback(async () => {
     if (!wallet.address) {
-      toast.error("Connect your wallet first");
+      toast.error(t.connectFirst);
       return;
     }
     if (!wallet.isRitual) {
       const ok = await ensureRitual();
       if (!ok) {
-        toast.error("Please switch to Ritual testnet");
+        toast.error(t.switchToRitual);
         return;
       }
     }
     if (wagerAmount > balance) {
-      toast.error("Insufficient CHEESE balance. Claim from faucet.");
+      toast.error(t.insufficientCheese);
       return;
     }
     setResult(null);
@@ -218,7 +224,7 @@ export default function Home() {
       inHole: false,
     });
     setScreen("playing");
-  }, [wallet, ensureRitual, wagerAmount, balance]);
+  }, [wallet, ensureRitual, wagerAmount, balance, t]);
 
   // Called when game ends
   const handleGameEnd = useCallback(
@@ -251,22 +257,22 @@ export default function Home() {
               return ns;
             });
             setBalance((b) => b - wagerAmount + j.payoutAmount);
-            toast.success(`🎉 Survived! Won ${j.payoutAmount} CHEESE!`);
+            toast.success(tf("survived", { n: j.payoutAmount }));
           } else {
             setStreak(0);
             setBalance((b) => b - wagerAmount);
-            toast.error(`💀 Cat caught you. Lost ${wagerAmount} CHEESE.`);
+            toast.error(tf("caughtYou", { n: wagerAmount }));
           }
           if (wallet.address) refreshHistory(wallet.address);
           refreshLeaderboard();
         }
       } catch (e: any) {
-        toast.error(e?.message ?? "Failed to save game record");
+        toast.error(e?.message ?? t.failedSave);
       } finally {
         setSubmitting(false);
       }
     },
-    [wallet.address, difficulty, wagerAmount, refreshHistory, refreshLeaderboard]
+    [wallet.address, difficulty, wagerAmount, refreshHistory, refreshLeaderboard, t, tf]
   );
 
   // Live update throttled
@@ -292,12 +298,18 @@ export default function Home() {
       <header className="relative z-10 border-b border-rose-500/15 backdrop-blur">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3">
           <div className="flex items-center gap-3">
+            {/* Ritual logo badge */}
             <div className="relative">
-              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-gradient-to-br from-rose-500 to-purple-600 text-xl shadow-[0_0_20px_rgba(255,77,109,0.5)]">
-                🐱
-              </div>
-              <span className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center rounded-full bg-cyan-400 text-[10px] text-black">
+              <img
+                src="/logo-badge.png"
+                alt="Ritual"
+                className="h-10 w-10 rounded-lg shadow-[0_0_20px_rgba(0,102,51,0.6)] ring-1 ring-emerald-400/40"
+              />
+              <span className="absolute -right-1.5 -top-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-cyan-400 text-[11px] shadow ring-2 ring-slate-900">
                 🐭
+              </span>
+              <span className="absolute -bottom-1.5 -right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-rose-500 text-[11px] shadow ring-2 ring-slate-900">
+                🐱
               </span>
             </div>
             <div>
@@ -309,17 +321,28 @@ export default function Home() {
                 </span>
               </h1>
               <p className="text-[11px] text-slate-400">
-                Verifiable-AI bounty hunt on Ritual testnet
+                {t.tagline}
               </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {/* Language toggle */}
+            <button
+              onClick={toggle}
+              className="group flex items-center gap-1 rounded-md border border-slate-700 bg-slate-900/60 px-2.5 py-1.5 text-xs font-mono text-slate-300 hover:border-rose-500/40 hover:text-rose-300 transition-colors"
+              title={lang === "en" ? "切换到中文" : "Switch to English"}
+            >
+              <Languages className="h-3.5 w-3.5" />
+              <span className={lang === "en" ? "font-bold text-rose-300" : "text-slate-500"}>EN</span>
+              <span className="text-slate-600">/</span>
+              <span className={lang === "zh" ? "font-bold text-rose-300" : "text-slate-500"}>中</span>
+            </button>
             <Badge
               variant="outline"
               className="border-rose-500/30 bg-rose-500/10 text-rose-300"
             >
               <Flame className="mr-1 h-3 w-3" />
-              Streak: {streak} (best {bestStreak})
+              {t.streak}: {streak} ({t.best} {bestStreak})
             </Badge>
             <Badge
               variant="outline"
@@ -337,8 +360,8 @@ export default function Home() {
               {wallet.connected
                 ? shortAddr(wallet.address)
                 : connecting
-                ? "Connecting..."
-                : "Connect Wallet"}
+                ? t.connecting
+                : t.connectWallet}
             </Button>
           </div>
         </div>
@@ -349,14 +372,14 @@ export default function Home() {
         )}
         {!wallet.isRitual && wallet.connected && (
           <div className="border-t border-amber-500/20 bg-amber-500/10 px-4 py-2 text-center text-xs text-amber-300">
-            ⚠️ Wrong network — switch to Ritual testnet (Chain ID 10211)
+            ⚠️ {t.wrongNetwork}
             <Button
               size="sm"
               variant="outline"
               className="ml-2 h-6 border-amber-400/40 text-amber-300"
               onClick={ensureRitual}
             >
-              Switch
+              {t.switch}
             </Button>
           </div>
         )}
@@ -376,6 +399,8 @@ export default function Home() {
             claimed={claimed}
             leaderboard={leaderboard}
             history={history}
+            t={t}
+            tf={tf}
           />
         )}
 
@@ -391,6 +416,8 @@ export default function Home() {
             onAbort={() => {
               setScreen("start");
             }}
+            t={t}
+            tf={tf}
           />
         )}
 
@@ -405,6 +432,8 @@ export default function Home() {
             onPlayAgain={() => {
               setScreen("start");
             }}
+            t={t}
+            tf={tf}
           />
         )}
       </main>
@@ -412,7 +441,7 @@ export default function Home() {
       <footer className="relative z-10 border-t border-slate-800 px-4 py-6 text-center text-xs text-slate-500">
         <div className="mx-auto flex max-w-7xl flex-col items-center justify-between gap-2 sm:flex-row">
           <p>
-            Built on{" "}
+            {t.footerBuiltOn}{" "}
             <a
               href="https://ritual.net"
               target="_blank"
@@ -421,9 +450,9 @@ export default function Home() {
             >
               Ritual testnet
             </a>{" "}
-            · AI inference via{" "}
-            <span className="text-cyan-400">z-ai-web-dev-sdk</span> · Not real
-            money, just CHEESE 🧀
+            · {t.footerAi}{" "}
+            <span className="text-cyan-400">z-ai-web-dev-sdk</span> ·{" "}
+            {t.footerNotReal} 🧀
           </p>
           <div className="flex items-center gap-3">
             <a
@@ -432,7 +461,7 @@ export default function Home() {
               rel="noreferrer"
               className="hover:text-slate-300"
             >
-              Docs
+              {t.docs}
             </a>
             <span>·</span>
             <a
@@ -441,7 +470,7 @@ export default function Home() {
               rel="noreferrer"
               className="hover:text-slate-300"
             >
-              Explorer
+              {t.explorer}
             </a>
           </div>
         </div>
@@ -463,6 +492,8 @@ function StartScreen({
   claimed,
   leaderboard,
   history,
+  t,
+  tf,
 }: {
   difficulty: Difficulty;
   setDifficulty: (d: Difficulty) => void;
@@ -475,8 +506,18 @@ function StartScreen({
   claimed: boolean;
   leaderboard: LeaderboardEntry[];
   history: GameHistoryItem[];
+  t: Dict;
+  tf: TfFn;
 }) {
   const cfg = DIFFICULTY_CONFIG[difficulty];
+  const diffLabel = (d: Difficulty) =>
+    d === "kitten" ? t.kitten : d === "hunter" ? t.hunter : t.strategist;
+  const diffDesc = (d: Difficulty) =>
+    d === "kitten"
+      ? t.kittenDesc
+      : d === "hunter"
+      ? t.hunterDesc
+      : t.strategistDesc;
   return (
     <div className="grid gap-6 lg:grid-cols-3">
       {/* Left: Hero & game */}
@@ -484,31 +525,28 @@ function StartScreen({
         <Card className="overflow-hidden border-rose-500/30 bg-gradient-to-br from-slate-900/80 to-purple-950/40 backdrop-blur">
           <CardHeader>
             <Badge className="w-fit gap-1 border-rose-500/40 bg-rose-500/10 text-rose-300">
-              <Sparkles className="h-3 w-3" /> On-chain · Verifiable AI
+              <Sparkles className="h-3 w-3" /> {t.badgeOnchain}
             </Badge>
             <CardTitle className="font-mono text-3xl tracking-tight">
-              The cat is{" "}
+              {t.heroTitleA}
               <span className="bg-gradient-to-r from-rose-400 to-amber-300 bg-clip-text text-transparent">
-                AI
+                {t.heroTitleAEmph}
               </span>
-              . The mouse is{" "}
+              {t.heroTitleB}
               <span className="bg-gradient-to-r from-cyan-400 to-emerald-300 bg-clip-text text-transparent">
-                you
+                {t.heroTitleBEmph}
               </span>
-              .
+              {t.heroTitleC}
             </CardTitle>
             <CardDescription className="text-slate-300">
-              A verifiable-AI bounty hunt on Ritual testnet. The cat&apos;s next
-              move is decided by an LLM inference anchored on-chain. Survive 60
-              seconds, collect CHEESE, win your wager back at the multiplier
-              set by your difficulty tier.
+              {t.heroDesc}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-5">
             {/* Difficulty picker */}
             <div>
               <p className="mb-2 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                Choose your predator
+                {t.choosePredator}
               </p>
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                 {(Object.keys(DIFFICULTY_CONFIG) as Difficulty[]).map((d) => {
@@ -531,10 +569,10 @@ function StartScreen({
                         </span>
                       </div>
                       <div className="mt-1 font-mono text-sm font-bold">
-                        {c.label}
+                        {diffLabel(d)}
                       </div>
                       <div className="text-[11px] leading-snug text-slate-400">
-                        {c.description}
+                        {diffDesc(d)}
                       </div>
                     </button>
                   );
@@ -546,10 +584,11 @@ function StartScreen({
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <p className="text-xs font-semibold uppercase tracking-wider text-slate-400">
-                  Wager (CHEESE)
+                  {t.wagerLabel}
                 </p>
                 <p className="font-mono text-sm text-amber-300">
-                  {wagerAmount} → win {Math.floor(wagerAmount * cfg.payoutMultiplier)}
+                  {wagerAmount} → {t.winAmount}{" "}
+                  {Math.floor(wagerAmount * cfg.payoutMultiplier)}
                 </p>
               </div>
               <input
@@ -563,7 +602,9 @@ function StartScreen({
               />
               <div className="mt-1 flex justify-between text-[10px] text-slate-500">
                 <span>10</span>
-                <span>Balance: {balance}</span>
+                <span>
+                  {t.balanceLabel}: {balance}
+                </span>
                 <span>{Math.min(500, Math.max(10, balance))}</span>
               </div>
             </div>
@@ -577,7 +618,7 @@ function StartScreen({
                 size="lg"
               >
                 <Crosshair className="h-5 w-5" />
-                Start Hunt
+                {t.startHunt}
               </Button>
               {wallet.connected && balance === 0 && !claimed && (
                 <Button
@@ -586,13 +627,11 @@ function StartScreen({
                   className="gap-2 border-amber-400/40 text-amber-300"
                 >
                   <Coins className="h-4 w-4" />
-                  Claim 1000 CHEESE from faucet
+                  {t.claimFaucet}
                 </Button>
               )}
               {!wallet.connected && (
-                <p className="text-xs text-slate-400">
-                  🔗 Connect wallet to start playing
-                </p>
+                <p className="text-xs text-slate-400">🔗 {t.connectToPlay}</p>
               )}
             </div>
           </CardContent>
@@ -601,48 +640,44 @@ function StartScreen({
         {/* How to play */}
         <Card className="border-cyan-500/20 bg-slate-900/60 backdrop-blur">
           <CardHeader>
-            <CardTitle className="font-mono text-lg">How to play</CardTitle>
+            <CardTitle className="font-mono text-lg">{t.howToPlay}</CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-3 text-sm sm:grid-cols-4">
-            <HowToPlayItem
-              icon="WASD"
-              title="Move"
-              desc="WASD or arrow keys. You are the cyan mouse."
-            />
+            <HowToPlayItem icon="WASD" title={t.move} desc={t.moveDesc} />
             <HowToPlayItem
               icon="🧀"
-              title="Collect Cheese"
-              desc="+50 score each. They respawn after 3s."
+              title={t.collectCheese}
+              desc={t.collectCheeseDesc}
             />
             <HowToPlayItem
               icon="🕳️"
-              title="Hide in Holes"
-              desc="3 safe zones. Invincible while inside."
+              title={t.hideInHoles}
+              desc={t.hideInHolesDesc}
             />
             <HowToPlayItem
               icon="⚡"
-              title="Grab Boosts"
-              desc="Speed boost for 4 seconds."
+              title={t.grabBoosts}
+              desc={t.grabBoostsDesc}
             />
             <HowToPlayItem
               icon="SPACE"
-              title="Drop Decoy"
-              desc="Drop a fake mouse to confuse the AI cat."
+              title={t.dropDecoy}
+              desc={t.dropDecoyDesc}
             />
             <HowToPlayItem
               icon="⏱️"
-              title="Survive 60s"
-              desc="Outlast the timer to win your wager."
+              title={t.survive60s}
+              desc={t.survive60sDesc}
             />
             <HowToPlayItem
               icon="🧠"
-              title="AI Inference"
-              desc="Each cat move is verifiable AI on Ritual."
+              title={t.aiInference}
+              desc={t.aiInferenceDesc}
             />
             <HowToPlayItem
               icon="💰"
-              title="Multiplier Payout"
-              desc="Kitten 1.5x · Hunter 2.5x · Strategist 5x"
+              title={t.multiplierPayout}
+              desc={t.multiplierPayoutDesc}
             />
           </CardContent>
         </Card>
@@ -654,17 +689,17 @@ function StartScreen({
           <CardHeader className="pb-3">
             <CardTitle className="flex items-center gap-2 font-mono text-base">
               <Trophy className="h-4 w-4 text-amber-400" />
-              Leaderboard
+              {t.leaderboard}
             </CardTitle>
             <CardDescription className="text-xs">
-              Top survivors across all Ritual testnet players
+              {t.leaderboardDesc}
             </CardDescription>
           </CardHeader>
           <CardContent>
             <div className="max-h-72 space-y-1 overflow-y-auto pr-1">
               {leaderboard.length === 0 && (
                 <p className="py-6 text-center text-xs text-slate-500">
-                  No survivors yet. Be the first!
+                  {t.noSurvivors}
                 </p>
               )}
               {leaderboard.slice(0, 10).map((e, i) => (
@@ -696,7 +731,8 @@ function StartScreen({
                       {e.wins}
                     </span>
                     <span title="Best survive">
-                      {(e.bestSurviveMs / 1000).toFixed(1)}s
+                      {(e.bestSurviveMs / 1000).toFixed(1)}
+                      {t.seconds}
                     </span>
                     <span title="Cheese" className="text-amber-300">
                       🧀{e.totalCheese}
@@ -713,14 +749,14 @@ function StartScreen({
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2 font-mono text-base">
                 <MouseIcon className="h-4 w-4 text-cyan-400" />
-                Your last runs
+                {t.yourLastRuns}
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="max-h-64 space-y-1 overflow-y-auto pr-1">
                 {history.length === 0 && (
                   <p className="py-6 text-center text-xs text-slate-500">
-                    No games yet. Click Start Hunt above.
+                    {t.noGames}
                   </p>
                 )}
                 {history.slice(0, 10).map((h) => (
@@ -739,9 +775,14 @@ function StartScreen({
                       </span>
                     </div>
                     <div className="mt-0.5 flex justify-between text-[10px] text-slate-500">
-                      <span>{(h.survivedMs / 1000).toFixed(1)}s · 🧀{h.cheeseCollected}</span>
+                      <span>
+                        {(h.survivedMs / 1000).toFixed(1)}
+                        {t.seconds} · 🧀{h.cheeseCollected}
+                      </span>
                       {h.ritualTxHash && (
-                        <span className="font-mono">{h.ritualTxHash?.slice(0, 10)}…</span>
+                        <span className="font-mono">
+                          {h.ritualTxHash?.slice(0, 10)}…
+                        </span>
                       )}
                     </div>
                   </div>
@@ -787,6 +828,8 @@ function PlayingScreen({
   onEnd,
   onLiveUpdate,
   onAbort,
+  t,
+  tf,
 }: {
   difficulty: Difficulty;
   paused: boolean;
@@ -796,35 +839,43 @@ function PlayingScreen({
   onEnd: (r: GameResult) => void;
   onLiveUpdate: (s: LiveSnap) => void;
   onAbort: () => void;
+  t: Dict;
+  tf: TfFn;
 }) {
   const cfg = DIFFICULTY_CONFIG[difficulty];
   const secondsLeft = ((GAME_DURATION - live.elapsed) / 1000).toFixed(1);
+  const diffLabel =
+    difficulty === "kitten"
+      ? t.kitten
+      : difficulty === "hunter"
+      ? t.hunter
+      : t.strategist;
   return (
     <div className="grid gap-4 lg:grid-cols-4">
       <div className="lg:col-span-3 space-y-3">
         {/* HUD bar */}
         <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
           <HudCard
-            label="Time Left"
-            value={`${secondsLeft}s`}
+            label={t.timeLeft}
+            value={`${secondsLeft}${t.seconds}`}
             icon={<span>⏱️</span>}
             color="text-cyan-300"
           />
           <HudCard
-            label="Score"
+            label={t.score}
             value={String(live.score)}
             icon={<Coins className="h-3.5 w-3.5" />}
             color="text-amber-300"
           />
           <HudCard
-            label="AI Inferences"
+            label={t.aiInferences}
             value={String(live.inferenceCount)}
             icon={<Zap className="h-3.5 w-3.5" />}
             color="text-rose-300"
           />
           <HudCard
-            label="Difficulty"
-            value={cfg.label}
+            label={t.difficulty}
+            value={`${cfg.emoji} ${diffLabel}`}
             icon={<span>{cfg.emoji}</span>}
             color="text-purple-300"
           />
@@ -832,10 +883,7 @@ function PlayingScreen({
 
         {/* Timer progress */}
         <div className="flex items-center gap-2">
-          <Progress
-            value={progressPct}
-            className="h-2 bg-slate-800"
-          />
+          <Progress value={progressPct} className="h-2 bg-slate-800" />
           <span className="font-mono text-xs text-slate-400">
             {Math.floor(progressPct)}%
           </span>
@@ -845,7 +893,7 @@ function PlayingScreen({
             className="h-7 border-slate-700 text-xs"
             onClick={() => setPaused(!paused)}
           >
-            {paused ? "▶ Resume" : "⏸ Pause"}
+            {paused ? `▶ ${t.resume}` : `⏸ ${t.pause}`}
           </Button>
         </div>
 
@@ -861,26 +909,27 @@ function PlayingScreen({
         <div className="flex flex-wrap gap-2">
           {live.speedBoost && (
             <Badge className="gap-1 border-purple-400/40 bg-purple-500/15 text-purple-300">
-              <Zap className="h-3 w-3" /> Speed Boost
+              <Zap className="h-3 w-3" /> {t.speedBoost}
             </Badge>
           )}
           {live.inHole && (
             <Badge className="gap-1 border-emerald-400/40 bg-emerald-500/15 text-emerald-300">
-              <CheckCircle2 className="h-3 w-3" /> Safe in Hole
+              <CheckCircle2 className="h-3 w-3" /> {t.safeInHole}
             </Badge>
           )}
           <Badge className="gap-1 border-rose-400/40 bg-rose-500/15 text-rose-300">
-            <Cat className="h-3 w-3" /> AI Strategy:{" "}
+            <Cat className="h-3 w-3" /> {t.aiStrategy}:{" "}
             <span className="font-mono">{live.catStrategy}</span>
           </Badge>
           <Badge className="gap-1 border-cyan-400/40 bg-cyan-500/15 text-cyan-300">
-            Conf: <span className="font-mono">{(live.catConfidence * 100).toFixed(0)}%</span>
+            {t.conf}:{" "}
+            <span className="font-mono">
+              {(live.catConfidence * 100).toFixed(0)}%
+            </span>
           </Badge>
         </div>
 
-        <p className="text-center text-[11px] text-slate-500">
-          Press <kbd className="rounded bg-slate-800 px-1 font-mono">SPACE</kbd> to drop a decoy · WASD/arrows to move · Don&apos;t get caught
-        </p>
+        <p className="text-center text-[11px] text-slate-500">{t.controlsHint}</p>
       </div>
 
       {/* Right rail: live inference feed */}
@@ -892,19 +941,19 @@ function PlayingScreen({
                 <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-rose-400 opacity-75" />
                 <span className="relative inline-flex h-2 w-2 rounded-full bg-rose-500" />
               </span>
-              Live AI Inference Feed
+              {t.liveFeed}
             </CardTitle>
             <CardDescription className="text-[11px]">
-              Each tick is an LLM call simulating Ritual&apos;s verifiable oracle
+              {t.liveFeedDesc}
             </CardDescription>
           </CardHeader>
           <CardContent className="space-y-3 text-xs">
             <div>
-              <p className="text-slate-400">Latest strategy</p>
+              <p className="text-slate-400">{t.latestStrategy}</p>
               <p className="font-mono text-rose-300">{live.catStrategy}</p>
             </div>
             <div>
-              <p className="text-slate-400">Confidence</p>
+              <p className="text-slate-400">{t.confidence}</p>
               <div className="mt-1 h-1.5 w-full overflow-hidden rounded-full bg-slate-800">
                 <div
                   className="h-full bg-gradient-to-r from-rose-500 to-amber-400 transition-all"
@@ -913,14 +962,17 @@ function PlayingScreen({
               </div>
             </div>
             <div>
-              <p className="text-slate-400">Inferences so far</p>
+              <p className="text-slate-400">{t.inferencesSoFar}</p>
               <p className="font-mono text-2xl text-rose-300">
                 {live.inferenceCount}
               </p>
             </div>
             <Separator className="bg-slate-800" />
             <div className="rounded-md bg-slate-900/70 p-2 text-[10px] text-slate-500">
-              <p className="font-mono text-cyan-300">{"// ritual testnet anchor"}</p>
+              <p className="font-mono text-cyan-300">
+                {"// "}
+                {t.anchorTitle}
+              </p>
               <p>chain_id: 0x27e3 (10211)</p>
               <p>contract: InferenceRegistry</p>
               <p>model: z-ai-llm (verifiable)</p>
@@ -949,9 +1001,7 @@ function HudCard({
         {icon}
         {label}
       </div>
-      <div className={`mt-0.5 font-mono text-lg font-bold ${color}`}>
-        {value}
-      </div>
+      <div className={`mt-0.5 font-mono text-lg font-bold ${color}`}>{value}</div>
     </div>
   );
 }
@@ -965,6 +1015,8 @@ function EndedScreen({
   payout,
   submitting,
   onPlayAgain,
+  t,
+  tf,
 }: {
   result: GameResult;
   difficulty: Difficulty;
@@ -973,9 +1025,17 @@ function EndedScreen({
   payout: number;
   submitting: boolean;
   onPlayAgain: () => void;
+  t: Dict;
+  tf: TfFn;
 }) {
   const won = !result.caught;
   const cfg = DIFFICULTY_CONFIG[difficulty];
+  const diffLabel =
+    difficulty === "kitten"
+      ? t.kitten
+      : difficulty === "hunter"
+      ? t.hunter
+      : t.strategist;
   return (
     <div className="mx-auto max-w-2xl">
       <Card
@@ -986,33 +1046,34 @@ function EndedScreen({
         }`}
       >
         <CardHeader className="text-center">
-          <div className="mx-auto mb-2 text-6xl">
-            {won ? "🎉" : "💀"}
-          </div>
+          <div className="mx-auto mb-2 text-6xl">{won ? "🎉" : "💀"}</div>
           <CardTitle className="font-mono text-3xl">
-            {won ? "YOU SURVIVED!" : "CAUGHT!"}
+            {won ? t.survivedTitle : t.caughtTitle}
           </CardTitle>
           <CardDescription>
             {won
-              ? `The AI cat couldn't catch you. ${cfg.label} difficulty conquered.`
-              : `The ${cfg.label} AI caught you in ${(result.survivedMs / 1000).toFixed(1)}s.`}
+              ? tf("survivedDesc", { label: diffLabel })
+              : tf("caughtDesc", {
+                  label: diffLabel,
+                  sec: (result.survivedMs / 1000).toFixed(1),
+                })}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           {/* Stats grid */}
           <div className="grid grid-cols-3 gap-2">
             <StatBox
-              label="Survived"
-              value={`${(result.survivedMs / 1000).toFixed(1)}s`}
+              label={t.statSurvived}
+              value={`${(result.survivedMs / 1000).toFixed(1)}${t.seconds}`}
               color="text-cyan-300"
             />
             <StatBox
-              label="Cheese"
+              label={t.statCheese}
               value={`🧀 ${result.cheeseCollected}`}
               color="text-amber-300"
             />
             <StatBox
-              label="AI Inferences"
+              label={t.statInferences}
               value={String(result.inferenceCount)}
               color="text-rose-300"
             />
@@ -1028,7 +1089,7 @@ function EndedScreen({
           >
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs text-slate-400">Wager</p>
+                <p className="text-xs text-slate-400">{t.wager}</p>
                 <p className="font-mono text-lg text-amber-300">
                   {wagerAmount} CHEESE
                 </p>
@@ -1036,7 +1097,7 @@ function EndedScreen({
               <div className="text-2xl">{won ? "→" : "✕"}</div>
               <div>
                 <p className="text-xs text-slate-400">
-                  {won ? "Payout" : "Lost"}
+                  {won ? t.payout : t.lost}
                 </p>
                 <p
                   className={`font-mono text-lg font-bold ${
@@ -1057,21 +1118,21 @@ function EndedScreen({
               ) : (
                 <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
               )}
-              Ritual testnet anchor
+              {t.ritualAnchor}
             </p>
             <div className="mt-2 space-y-1 font-mono text-[10px] text-slate-400">
               <p>
-                <span className="text-slate-500">tx_hash:</span>{" "}
+                <span className="text-slate-500">{t.txHash}:</span>{" "}
                 {txHash ? (
                   <span className="text-cyan-300">
                     {txHash.slice(0, 18)}…{txHash.slice(-8)}
                   </span>
                 ) : (
-                  <span className="text-slate-600">pending…</span>
+                  <span className="text-slate-600">{t.pending}</span>
                 )}
               </p>
               <p>
-                <span className="text-slate-500">inference_hash:</span>{" "}
+                <span className="text-slate-500">{t.inferenceHash}:</span>{" "}
                 <span className="text-rose-300">
                   {result.inferenceHash
                     ? `${result.inferenceHash.slice(0, 18)}…`
@@ -1079,7 +1140,7 @@ function EndedScreen({
                 </span>
               </p>
               <p>
-                <span className="text-slate-500">difficulty:</span>{" "}
+                <span className="text-slate-500">{t.difficulty}:</span>{" "}
                 <span className="text-purple-300">{difficulty}</span>
               </p>
             </div>
@@ -1090,7 +1151,7 @@ function EndedScreen({
                 rel="noreferrer"
                 className="mt-2 inline-flex items-center gap-1 text-[11px] text-cyan-400 hover:underline"
               >
-                View on Ritual Explorer <ExternalLink className="h-3 w-3" />
+                {t.viewOnExplorer} <ExternalLink className="h-3 w-3" />
               </a>
             )}
           </div>
@@ -1101,7 +1162,7 @@ function EndedScreen({
             size="lg"
           >
             <Crosshair className="h-5 w-5" />
-            Play Again
+            {t.playAgain}
           </Button>
         </CardContent>
       </Card>
