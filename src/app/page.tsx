@@ -653,7 +653,22 @@ function SoloTab({
         payout={payout}
         submitting={submitting}
         onchainVerified={onchainVerified}
-        onPlayAgain={() => {}}
+        onPlayAgain={() => {
+          setResult(null);
+          setTxHash(null);
+          setPayout(0);
+          setOnchainVerified(false);
+          setLive({
+            elapsed: 0,
+            score: 0,
+            inferenceCount: 0,
+            catStrategy: "—",
+            catConfidence: 0,
+            speedBoost: false,
+            inHole: false,
+          });
+          setScreen("start");
+        }}
         t={t}
         tf={tf}
       />
