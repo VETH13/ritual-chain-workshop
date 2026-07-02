@@ -306,6 +306,24 @@ export default function Home() {
   );
 
   const handleLiveUpdate = useCallback((s: LiveSnap) => setLive(s), []);
+
+  const resetGame = useCallback(() => {
+    setResult(null);
+    setTxHash(null);
+    setPayout(0);
+    setOnchainVerified(false);
+    setLive({
+      elapsed: 0,
+      score: 0,
+      inferenceCount: 0,
+      catStrategy: "—",
+      catConfidence: 0,
+      speedBoost: false,
+      inHole: false,
+    });
+    setScreen("start");
+  }, []);
+
   const cfg = DIFFICULTY_CONFIG[difficulty];
   const progressPct = Math.min(100, (live.elapsed / GAME_DURATION) * 100);
 
@@ -497,6 +515,7 @@ export default function Home() {
             payout={payout}
             submitting={submitting}
             onchainVerified={onchainVerified}
+            onPlayAgain={resetGame}
             t={t}
             tf={tf}
           />
@@ -619,6 +638,7 @@ function SoloTab({
   payout,
   submitting,
   onchainVerified,
+  onPlayAgain,
   t,
   tf,
 }: any) {
@@ -653,22 +673,7 @@ function SoloTab({
         payout={payout}
         submitting={submitting}
         onchainVerified={onchainVerified}
-        onPlayAgain={() => {
-          setResult(null);
-          setTxHash(null);
-          setPayout(0);
-          setOnchainVerified(false);
-          setLive({
-            elapsed: 0,
-            score: 0,
-            inferenceCount: 0,
-            catStrategy: "—",
-            catConfidence: 0,
-            speedBoost: false,
-            inHole: false,
-          });
-          setScreen("start");
-        }}
+        onPlayAgain={onPlayAgain}
         t={t}
         tf={tf}
       />
